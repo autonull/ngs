@@ -74,8 +74,8 @@ class EWCModel(nn.Module):
         super().__init__()
         self.ewc_lambda = ewc_lambda
         self.mlp = MLP(input_dim, output_dim, hidden_dims)
-        self.register_buffer('fisher', None)
-        self.register_buffer('opt_params', None)
+        self.fisher = None
+        self.opt_params = None
 
     def forward(self, x):
         return self.mlp(x)
@@ -87,7 +87,8 @@ class EWCModel(nn.Module):
         opt_params = {n: p.clone().detach() for n, p in self.mlp.named_parameters() if p.requires_grad}
 
         for x, y in dataloader:
-            x, y = x.to(device), y.to(device)
+            x = x.view(x.size(0), -1).to(device)
+            y = y.to(device)
             self.mlp.zero_grad()
             logits = self.mlp(x)
             loss = F.cross_entropy(logits, y)
@@ -120,8 +121,8 @@ class SIModel(nn.Module):
         super().__init__()
         self.si_lambda = si_lambda
         self.mlp = MLP(input_dim, output_dim, hidden_dims)
-        self.register_buffer('omega', {})
-        self.register_buffer('prev_params', {})
+        self.omega = {}
+        self.prev_params = {}
 
     def forward(self, x):
         return self.mlp(x)
@@ -133,7 +134,8 @@ class SIModel(nn.Module):
         prev_params = {n: p.clone().detach() for n, p in self.mlp.named_parameters() if p.requires_grad}
 
         for x, y in dataloader:
-            x, y = x.to(device), y.to(device)
+            x = x.view(x.size(0), -1).to(device)
+            y = y.to(device)
             self.mlp.zero_grad()
             logits = self.mlp(x)
             loss = F.cross_entropy(logits, y)

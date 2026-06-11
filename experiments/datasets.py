@@ -85,18 +85,41 @@ class PermutedMNIST:
             self.permutations.append(perm)
 
     def get_task_data(self, task_id: int, batch_size: int = 256) -> Tuple[DataLoader, DataLoader]:
-        transform = get_transform('permuted_mnist')
-        train_ds = datasets.MNIST('./data', train=True, download=True, transform=transform)
-        test_ds = datasets.MNIST('./data', train=False, download=True, transform=transform)
+        # Load raw data and create permuted tensors
+        train_ds = datasets.MNIST('./data', train=True, download=True)
+        test_ds = datasets.MNIST('./data', train=False, download=True)
 
-        def permute_data(dataset, perm):
-            data = dataset.data.view(-1, 784).float() / 255.0
-            data = data[:, perm]
-            dataset.data = data.view(-1, 1, 28, 28)
-            return dataset
+        perm = self.permutations[task_id]
+        
+        # Pre-compute permuted data
+        train_data = train_ds.data.view(-1, 784).float() / 255.0
+        train_data = train_data[:, perm]
+        train_targets = train_ds.targets
+        
+        test_data = test_ds.data.view(-1, 784).float() / 255.0
+        test_data = test_data[:, perm]
+        test_targets = test_ds.targets
 
-        train_ds = permute_data(train_ds, self.permutations[task_id])
-        test_ds = permute_data(test_ds, self.permutations[task_id])
+        # Create tensor datasets
+        from torch.utils.data import TensorDataset
+        train_ds = TensorDataset(train_data, train_targets)
+        test_ds = TensorDataset(test_data, test_targets)
+
+        # Wrap to apply normalization
+        class NormalizeDataset:
+            def __init__(self, dataset):
+                self.dataset = dataset
+                self.mean = 0.1307
+                self.std = 0.3081
+            def __len__(self):
+                return len(self.dataset)
+            def __getitem__(self, idx):
+                x, y = self.dataset[idx]
+                x = (x - self.mean) / self.std
+                return x, y
+
+        train_ds = NormalizeDataset(train_ds)
+        test_ds = NormalizeDataset(test_ds)
 
         train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
