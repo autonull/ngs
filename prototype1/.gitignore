@@ -1,0 +1,18 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Prolog (Scryer)
+*.qlf
+*.plq
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+lean_ngs/data/
+lean_ngs/__pycache__/
+*.pyc
