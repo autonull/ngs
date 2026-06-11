@@ -22,7 +22,7 @@ class ModelConfig:
 class TrainConfig:
     lr: float = 1e-3
     weight_decay: float = 1e-4
-    epochs_per_task: int = 3
+    epochs_per_task: int = 2
     batch_size: int = 256
     replay_size: int = 50000
     replay_ratio: float = 1.0  # 1:1 replay

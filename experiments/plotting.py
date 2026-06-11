@@ -11,6 +11,8 @@ import os
 from typing import Dict, List, Optional
 import pandas as pd
 
+from experiments.metrics import compute_metrics
+
 # Style
 sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = (10, 8)
@@ -191,12 +193,34 @@ def generate_report(results: Dict, output_dir: str = './plots'):
         if 'error' in result:
             continue
 
-        exp_name = result['config']
-        model = result['model']
-        seed = result['seed']
+        # Parse filename: ExpName_Model_seedN.json
+        # key is filename without .json
+        parts = key.split('_')
+        if len(parts) >= 3:
+            exp_name = '_'.join(parts[:-2])  # Everything before model_seed
+            model = parts[-2]
+            seed = parts[-1].replace('seed', '')
+        else:
+            exp_name = result.get('config', 'Unknown')
+            model = result.get('model', 'Unknown')
+            seed = result.get('seed', 0)
+
+        # Handle both old format (direct accuracy_matrix) and new format (wrapped in metrics)
+        if 'accuracy_matrix' in result:
+            acc_matrix = np.array(result['accuracy_matrix'])
+            # Compute metrics if not present
+            if 'metrics' in result:
+                metrics = result['metrics']
+            else:
+                metrics = compute_metrics(acc_matrix).to_dict()
+        elif 'metrics' in result and 'accuracy_matrix' in result['metrics']:
+            acc_matrix = np.array(result['metrics']['accuracy_matrix'])
+            metrics = result['metrics']
+        else:
+            print(f"Skipping {key}: unknown format")
+            continue
 
         # Accuracy matrix heatmap
-        acc_matrix = np.array(result['accuracy_matrix'])
         plot_accuracy_matrix(
             acc_matrix,
             f"{exp_name} - {model.upper()} (seed={seed})",
@@ -204,7 +228,6 @@ def generate_report(results: Dict, output_dir: str = './plots'):
         )
 
         # Forgetting
-        metrics = result['metrics']
         task_names = [f"Task {i}" for i in range(len(metrics['forgetting']))]
         plot_forgetting(
             np.array(metrics['forgetting']),

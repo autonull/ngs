@@ -99,8 +99,6 @@ def run_experiment(
             _, eval_test_loader, _ = get_task_data(eval_task)
             acc = evaluate_model_on_task(model, eval_test_loader, device)
             accuracy_matrix[eval_task, task_id] = acc
-            if task_id == 1 and eval_task == 0:
-                print(f"  DEBUG: Task {eval_task} acc after task {task_id}: {acc:.4f}")
 
         # Add current task data to replay buffer AFTER training
         if replay_buffer:
@@ -134,12 +132,7 @@ def run_experiment(
     # Save results
     os.makedirs(output_dir, exist_ok=True)
     result_file = os.path.join(output_dir, f"{config.name}_{model_name}_seed{seed}.json")
-    metrics.save(result_file)
-
-    if verbose:
-        print_results(metrics, f"{config.name} - {model_name.upper()} (seed={seed})")
-
-    return {
+    full_result = {
         'metrics': metrics.to_dict(),
         'accuracy_matrix': accuracy_matrix.tolist(),
         'active_units': active_units_list,
@@ -147,6 +140,13 @@ def run_experiment(
         'model': model_name,
         'seed': seed,
     }
+    with open(result_file, 'w') as f:
+        json.dump(full_result, f, indent=2)
+
+    if verbose:
+        print_results(metrics, f"{config.name} - {model_name.upper()} (seed={seed})")
+
+    return full_result
 
 
 def run_all_experiments(
@@ -196,9 +196,19 @@ def aggregate_results(results: Dict, group_by: str = 'model') -> Dict:
         if 'error' in result:
             continue
 
-        exp_name = result['config']
-        model = result['model']
-        seed = result['seed']
+        # Parse from key (filename) if not in result
+        if 'config' in result:
+            exp_name = result['config']
+            model = result['model']
+            seed = result['seed']
+        else:
+            parts = key.split('_')
+            if len(parts) >= 3:
+                exp_name = '_'.join(parts[:-2])
+                model = parts[-2]
+                seed = parts[-1].replace('seed', '')
+            else:
+                continue
 
         if group_by == 'model':
             group_key = model
@@ -216,7 +226,14 @@ def aggregate_results(results: Dict, group_by: str = 'model') -> Dict:
                 'la': [],
             }
 
-        m = result['metrics']
+        # Handle both formats
+        if 'metrics' in result:
+            m = result['metrics']
+        else:
+            # Compute from accuracy_matrix
+            acc_matrix = np.array(result['accuracy_matrix'])
+            m = compute_metrics(acc_matrix).to_dict()
+
         grouped[group_key]['avg_final_accuracy'].append(m['avg_final_accuracy'])
         grouped[group_key]['avg_forgetting'].append(m['avg_forgetting'])
         grouped[group_key]['bwt'].append(m['bwt'])
