@@ -47,7 +47,9 @@ class HeuristicManager(BaseTopologyManager):
                        optimizer=None,
                        spawn_thresh: float = -5.0,
                        max_spawn_per_call: int = 10,
-                       z_samples: torch.Tensor = None) -> Tuple[int, int, int]:
+                       z_samples: torch.Tensor = None,
+                       split_thresh: float = None,
+                       prune_thresh: float = None) -> Tuple[int, int, int]:
         """
         Apply heuristic topology changes.
         
@@ -57,12 +59,16 @@ class HeuristicManager(BaseTopologyManager):
             spawn_thresh: Threshold for spawning new units
             max_spawn_per_call: Max units to spawn at once
             z_samples: [N, d] latent samples for coverage analysis
+            split_thresh: Overrides self.split_threshold if provided
+            prune_thresh: Overrides self.prune_threshold if provided
             
         Returns:
             (num_pruned, num_split, num_spawned)
         """
         if not hasattr(model.router, 'active_mask'):
             return 0, 0, 0
+        split_thresh = split_thresh if split_thresh is not None else self.split_threshold
+        prune_thresh = prune_thresh if prune_thresh is not None else self.prune_threshold
         active_idx = model.router.active_mask.nonzero(as_tuple=True)[0]
         K = len(active_idx)
         if K == 0:
@@ -81,7 +87,7 @@ class HeuristicManager(BaseTopologyManager):
         num_spawned = 0
         
         # Prune low-opacity units
-        prune_mask = alpha < self.prune_threshold
+        prune_mask = alpha < prune_thresh
         if prune_mask.any():
             prune_idx = active_idx[prune_mask]
             model.router.active_mask[prune_idx] = False
@@ -99,7 +105,7 @@ class HeuristicManager(BaseTopologyManager):
         grad_ema = model.grad_mu_ema[active_idx]
         max_s = torch.exp(model.router.log_s[active_idx]).max(dim=-1).values
         
-        split_mask = (grad_ema > self.split_threshold) & (max_s > self.split_threshold)
+        split_mask = (grad_ema > split_thresh) & (max_s > split_thresh)
         if split_mask.any():
             split_idx = active_idx[split_mask]
             free_slots = (~model.router.active_mask).nonzero(as_tuple=True)[0]
@@ -190,7 +196,8 @@ class ContinuousDensityManager(BaseTopologyManager):
         self.activation_density = torch.zeros(max_k, device=device)
         self.error_density = torch.zeros(max_k, device=device)
     
-    def adapt_topology(self, model, **kwargs):
+    def adapt_topology(self, model, split_thresh: float = None,
+                       prune_thresh: float = None, **kwargs):
         """
         Differentiable topology adaptation via split gates.
         
@@ -199,12 +206,13 @@ class ContinuousDensityManager(BaseTopologyManager):
         """
         if not hasattr(model.router, 'active_mask'):
             return 0, 0, 0
+        prune_thresh = prune_thresh if prune_thresh is not None else self.prune_threshold
         active_idx = model.router.active_mask.nonzero(as_tuple=True)[0]
         log_alpha = model.router.log_alpha[active_idx]
         alpha = torch.sigmoid(log_alpha)
         
         num_pruned = 0
-        prune_mask = alpha < self.prune_threshold
+        prune_mask = alpha < prune_thresh
         if prune_mask.any():
             prune_idx = active_idx[prune_mask]
             model.router.active_mask[prune_idx] = False

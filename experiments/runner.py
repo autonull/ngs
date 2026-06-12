@@ -19,6 +19,7 @@ from experiments.metrics import (
 )
 from experiments.trainers import get_trainer
 from experiments.lean_ngs_trainer import train_lean_ngs, create_lean_ngs
+from experiments.mngs_trainer import train_mngs, create_mngs, create_mngs_from_profile, PROFILE_TRAIN_CONFIGS
 
 
 def set_seed(seed: int):
@@ -48,14 +49,27 @@ def run_experiment(
         model = create_lean_ngs(config.input_dim, config.output_dim, **asdict(config.model))
         train_fn = train_lean_ngs
         train_kwargs = asdict(config.train)
+    elif model_name.startswith('mngs_'):
+        # Parse profile name (e.g., 'mngs_baseline')
+        profile = model_name[5:]
+        try:
+            model = create_mngs_from_profile(profile, config.input_dim, config.output_dim)
+        except ValueError as e:
+            print(f"Warning: {e}. Using baseline profile.")
+            model = create_mngs_from_profile('baseline', config.input_dim, config.output_dim)
+        train_fn = train_mngs
+        train_kwargs = asdict(config.train)
+        # Apply profile-specific train overrides
+        if profile in PROFILE_TRAIN_CONFIGS:
+            train_kwargs.update(PROFILE_TRAIN_CONFIGS[profile])
     else:
         model = create_baseline(model_name, config.input_dim, config.output_dim)
         train_fn = get_trainer(model_name)
         train_kwargs = asdict(config.train)
 
-    # Setup replay buffer for ER/LeanNGS
+    # Setup replay buffer for ER/LeanNGS/MNGS
     replay_buffer = None
-    if model_name in ['er', 'lean_ngs']:
+    if model_name.startswith('mngs_') or model_name in ['er', 'lean_ngs']:
         replay_buffer = ReplayBuffer(max_size=config.train.replay_size)
 
     # Task loader function
@@ -92,9 +106,8 @@ def run_experiment(
 
         # Train
         train_kwargs['replay_buffer'] = replay_buffer
-        if model_name == 'lean_ngs':
-            train_kwargs['old_model'] = old_model
-        if model_name == 'lwf':
+        if model_name in ['lean_ngs', 'lwf', 'mngs_baseline', 'mngs_cfg_net', 
+                           'mngs_ultra_edge', 'mngs_abl_hyper'] or model_name.startswith('mngs_'):
             train_kwargs['old_model'] = old_model
         train_fn(model, train_loader, task_id, device=device, **train_kwargs)
 
@@ -119,7 +132,7 @@ def run_experiment(
                 replay_buffer.add(x_flat, torch.nn.functional.one_hot(y, num_classes=config.output_dim).float())
 
         # Save old model for KD/LwF
-        if model_name in ['lean_ngs', 'lwf']:
+        if model_name in ['lean_ngs', 'lwf'] or model_name.startswith('mngs_'):
             old_model = deepcopy(model)
             old_model.eval()
             for p in old_model.parameters():
@@ -139,7 +152,9 @@ def run_experiment(
     # Compute metrics
     metrics = compute_metrics(accuracy_matrix)
     metrics.active_units = active_units_list[-1] if active_units_list else 0
-    metrics.max_units = config.model.max_k if model_name == 'lean_ngs' else 0
+    metrics.max_units = config.model.max_k if model_name == 'lean_ngs' else (
+        model.config.max_k if hasattr(model, 'config') and hasattr(model.config, 'max_k') else 0
+    )
 
     # Save results
     os.makedirs(output_dir, exist_ok=True)
