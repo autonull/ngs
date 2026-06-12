@@ -31,12 +31,12 @@ class MonolithicRouter(BaseRouter):
     Computes O(N) distance to all units and selects Top-K.
     """
     
-    def __init__(self, max_k: int, d_latent: int, top_k: int, tau: float = 1.0):
+    def __init__(self, max_k: int, d_latent: int, top_k: int, tau: float = 1.0, ema_decay: float = 0.99):
         super().__init__()
         self.max_k = max_k
         self.d_latent = d_latent
         self.top_k = top_k
-        self.tau = tau
+        self.tau = nn.Parameter(torch.tensor(tau))
         self.eps = 1e-5
         
         # Gaussian unit parameters
@@ -46,6 +46,11 @@ class MonolithicRouter(BaseRouter):
         
         # Active mask for pre-allocated memory
         self.register_buffer('active_mask', torch.zeros(max_k, dtype=torch.bool))
+        
+        # Gradient EMA for topology adaptation (auto-updated via hook)
+        self.register_buffer('grad_mu_ema', torch.zeros(max_k))
+        self.ema_decay = ema_decay
+        self.mu.register_hook(self._update_mu_grad_ema)
         
     def initialize_units(self, k_init: int):
         """Initialize the first k_init units as active."""
@@ -99,6 +104,17 @@ class MonolithicRouter(BaseRouter):
             'log_s': self.log_s[active_idx],
             'log_alpha': self.log_alpha[active_idx],
         }
+    
+    def _update_mu_grad_ema(self, grad):
+        """Hook that auto-updates grad_mu_ema after backward."""
+        if self.active_mask.any():
+            active_mask = self.active_mask
+            grad_mag = grad.norm(dim=-1)
+            self.grad_mu_ema[active_mask] = (
+                self.ema_decay * self.grad_mu_ema[active_mask]
+                + (1 - self.ema_decay) * grad_mag[active_mask]
+            )
+        return grad
 
 
 class FactorizedRouter(BaseRouter):
@@ -110,25 +126,36 @@ class FactorizedRouter(BaseRouter):
     """
     
     def __init__(self, d_latent: int, num_subspaces: int, units_per_space: int, 
-                 top_k: int = 2, tau: float = 1.0):
+                 top_k: int = 2, tau: float = 1.0, param_stores: list = None):
         super().__init__()
         self.d_latent = d_latent
         self.num_subspaces = num_subspaces
         self.units_per_space = units_per_space
         self.top_k = top_k
-        self.tau = tau
+        self.tau = nn.Parameter(torch.tensor(tau))
         self.eps = 1e-5
         
         # Project latent space into subspaces
+        d_sub = max(d_latent // num_subspaces, 1)
         self.subspace_projectors = nn.ModuleList([
-            nn.Linear(d_latent, d_latent // num_subspaces, bias=False)
+            nn.Linear(d_latent, d_sub, bias=False)
             for _ in range(num_subspaces)
         ])
         
         # Gaussian units per subspace
-        self.mu = nn.Parameter(torch.randn(num_subspaces, units_per_space, d_latent // num_subspaces) * 1.0)
-        self.log_s = nn.Parameter(torch.zeros(num_subspaces, units_per_space, d_latent // num_subspaces))
+        self.mu = nn.Parameter(torch.randn(num_subspaces, units_per_space, d_sub) * 1.0)
+        self.log_s = nn.Parameter(torch.zeros(num_subspaces, units_per_space, d_sub))
         self.log_alpha = nn.Parameter(torch.zeros(num_subspaces, units_per_space))
+        
+        # Per-subspace parameter stores (optional, for DYNAMIC_GROWTH support)
+        if param_stores is not None:
+            self.param_stores = nn.ModuleList(param_stores)
+        else:
+            self.param_stores = None
+    
+    def set_param_stores(self, param_stores):
+        """Set per-subspace parameter stores."""
+        self.param_stores = nn.ModuleList(param_stores)
         
     def forward(self, z: torch.Tensor) -> tuple:
         """

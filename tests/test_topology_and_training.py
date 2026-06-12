@@ -28,17 +28,17 @@ def test_heuristic_manager_prune():
 
 
 def test_update_grad_ema():
-    """Test that gradient EMA updates work."""
+    """Test that gradient EMA updates work (auto-updated via hook)."""
     config = Baseline_LeanNGS()
     model = build_mngs(d_in=784, d_out=10, config=config)
     x = torch.randn(4, 784)
     out = model(x)
     loss = out.sum()
-    loss.backward()
     
-    old_ema = model.grad_mu_ema[model.router.active_mask].clone()
-    model.update_grad_ema()
-    new_ema = model.grad_mu_ema[model.router.active_mask]
+    # Capture EMA before backward (hook runs during backward)
+    old_ema = model.router.grad_mu_ema[model.router.active_mask].clone()
+    loss.backward()
+    new_ema = model.router.grad_mu_ema[model.router.active_mask]
     
     # EMA should have changed from zero
     assert not torch.allclose(old_ema, new_ema), "EMA should update after backward"

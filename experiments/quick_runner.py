@@ -12,7 +12,7 @@ import time
 import os
 import json
 
-from experiments.config import ExperimentConfig, EXPERIMENTS
+from experiments.config import ExperimentConfig, EXPERIMENTS, TrainConfig, ModelConfig, as_train_kwargs
 from experiments.datasets import get_task_loaders
 from experiments.metrics import compute_metrics, evaluate_model_on_task
 from experiments.lean_ngs_trainer import train_lean_ngs, create_lean_ngs
@@ -140,17 +140,7 @@ def run_quick_experiment(
         freeze_backbone=True
     )
     
-    train_kwargs = {
-        'epochs': config.train.epochs_per_task,
-        'lr': config.train.lr,
-        'weight_decay': config.train.weight_decay,
-        'replay_ratio': config.train.replay_ratio,
-        'kd_weight': config.train.kd_weight,
-        'kd_temperature': config.train.kd_temperature,
-        'split_thresh': config.train.split_thresh,
-        'prune_thresh': config.train.prune_thresh,
-        'max_spawn_per_call': config.train.max_spawn_per_call,
-    }
+    train_kwargs = as_train_kwargs(config.train)
     
     # Setup replay buffer
     from experiments.datasets import ReplayBuffer
@@ -213,7 +203,7 @@ def run_quick_experiment(
             print(f"  Task {task_id} done. Acc on task {task_id}: {accuracy_matrix[task_id, task_id]:.4f}")
     
     # Compute metrics
-    metrics = compute_metrics(accuracy_matrix)
+    metrics = compute_metrics(accuracy_matrix, random_baseline=1.0 / config.output_dim)
     metrics.active_units = active_units_list[-1] if active_units_list else 0
     metrics.max_units = config.model.max_k
     
@@ -256,7 +246,7 @@ QUICK_BENCHMARKS = {
         classes_per_task=10,
         input_dim=32*32*3,
         output_dim=10,
-        train=__import__('experiments.config').config.TrainConfig(
+        train=TrainConfig(
             epochs_per_task=5,
             batch_size=128,
             replay_size=20000,
@@ -267,7 +257,7 @@ QUICK_BENCHMARKS = {
             prune_thresh=0.01,
             max_spawn_per_call=5,
         ),
-        model=__import__('experiments.config').config.ModelConfig(
+        model=ModelConfig(
             d_latent=64, k_init=32, max_k=256, top_k=8, lora_rank=4
         ),
     ),
@@ -279,7 +269,7 @@ QUICK_BENCHMARKS = {
         classes_per_task=2,
         input_dim=32*32*3,
         output_dim=2,
-        train=__import__('experiments.config').config.TrainConfig(
+        train=TrainConfig(
             epochs_per_task=5,
             batch_size=128,
             replay_size=20000,
@@ -290,7 +280,7 @@ QUICK_BENCHMARKS = {
             prune_thresh=0.01,
             max_spawn_per_call=5,
         ),
-        model=__import__('experiments.config').config.ModelConfig(
+        model=ModelConfig(
             d_latent=64, k_init=32, max_k=256, top_k=8, lora_rank=4
         ),
     ),
@@ -302,7 +292,7 @@ QUICK_BENCHMARKS = {
         classes_per_task=2,
         input_dim=32*32*3,
         output_dim=2,
-        train=__import__('experiments.config').config.TrainConfig(
+        train=TrainConfig(
             epochs_per_task=5,
             batch_size=128,
             replay_size=20000,
@@ -313,7 +303,7 @@ QUICK_BENCHMARKS = {
             prune_thresh=0.01,
             max_spawn_per_call=5,
         ),
-        model=__import__('experiments.config').config.ModelConfig(
+        model=ModelConfig(
             d_latent=64, k_init=32, max_k=256, top_k=8, lora_rank=4
         ),
     ),

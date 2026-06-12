@@ -131,7 +131,9 @@ class LeanNGS(nn.Module):
 
                 self.mu[new_idx] = self.mu[split_idx] + torch.randn_like(self.mu[split_idx]) * noise_std
                 self.log_s[new_idx] = self.log_s[split_idx] + torch.log(torch.tensor(split_scale))
-                self.log_alpha[new_idx] = self.log_alpha[split_idx] + torch.log(torch.tensor(0.5))
+                self.log_alpha[new_idx] = self.log_alpha[split_idx].clone()
+                alpha_new = torch.sigmoid(self.log_alpha[new_idx])
+                self.log_alpha[new_idx] = torch.logit(alpha_new * 0.5, eps=1e-8)
                 
                 # Initialize LoRA adapters for new units
                 self.W_A[new_idx] = torch.randn_like(self.W_A[split_idx]) * 1e-2
@@ -142,7 +144,8 @@ class LeanNGS(nn.Module):
 
                 # Halve scale of original units
                 self.log_s[split_idx] = self.log_s[split_idx] + torch.log(torch.tensor(split_scale))
-                self.log_alpha[split_idx] = self.log_alpha[split_idx] + torch.log(torch.tensor(0.5))
+                alpha_split = torch.sigmoid(self.log_alpha[split_idx])
+                self.log_alpha[split_idx] = torch.logit(alpha_split * 0.5, eps=1e-8)
 
                 print(f"Split {n_split} units (K={self.K})")
 

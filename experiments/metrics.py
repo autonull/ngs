@@ -34,6 +34,9 @@ class CLMetrics:
     # Learning Accuracy (LA): avg_i acc[i][i]
     la: float
 
+    # Random baseline used for FWT
+    random_baseline: float
+
     # Memory stability: ratio of params changed
     param_stability: float = 0.0
 
@@ -51,6 +54,7 @@ class CLMetrics:
             'bwt': float(self.bwt),
             'fwt': float(self.fwt),
             'la': float(self.la),
+            'random_baseline': float(self.random_baseline),
             'param_stability': float(self.param_stability),
             'active_units': int(self.active_units),
             'max_units': int(self.max_units),
@@ -61,7 +65,7 @@ class CLMetrics:
             json.dump(self.to_dict(), f, indent=2)
 
 
-def compute_metrics(accuracy_matrix: np.ndarray, random_baseline: float = 0.1) -> CLMetrics:
+def compute_metrics(accuracy_matrix: np.ndarray, random_baseline: float) -> CLMetrics:
     """Compute all CL metrics from accuracy matrix."""
     n_tasks = accuracy_matrix.shape[0]
 
@@ -104,6 +108,7 @@ def compute_metrics(accuracy_matrix: np.ndarray, random_baseline: float = 0.1) -
         bwt=bwt,
         fwt=fwt,
         la=la,
+        random_baseline=random_baseline,
     )
 
 

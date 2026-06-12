@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from experiments.metrics import compute_metrics
+from experiments.config import EXPERIMENTS
 
 # Style
 sns.set_style("whitegrid")
@@ -209,10 +210,14 @@ def generate_report(results: Dict, output_dir: str = './plots'):
         if 'accuracy_matrix' in result:
             acc_matrix = np.array(result['accuracy_matrix'])
             # Compute metrics if not present
-            if 'metrics' in result:
+            if 'metrics' in result and 'random_baseline' in result['metrics']:
                 metrics = result['metrics']
             else:
-                metrics = compute_metrics(acc_matrix).to_dict()
+                # Look up output_dim from experiment config
+                random_baseline = 0.1
+                if exp_name in EXPERIMENTS:
+                    random_baseline = 1.0 / EXPERIMENTS[exp_name].output_dim
+                metrics = compute_metrics(acc_matrix, random_baseline=random_baseline).to_dict()
         elif 'metrics' in result and 'accuracy_matrix' in result['metrics']:
             acc_matrix = np.array(result['metrics']['accuracy_matrix'])
             metrics = result['metrics']

@@ -11,8 +11,9 @@ from dataclasses import asdict
 from copy import deepcopy
 from tqdm import tqdm
 
-from experiments.config import ExperimentConfig, EXPERIMENTS, ModelConfig, TrainConfig
+from experiments.config import ExperimentConfig, EXPERIMENTS, ModelConfig, TrainConfig, as_train_kwargs
 from experiments.datasets import get_task_loaders, PermutedMNIST, RotatedMNIST, BlurryMNIST, NoisyMNIST, ReplayBuffer
+from experiments.datasets_tinyshakespeare import get_tinyshakespeare_loaders
 from experiments.baselines import create_baseline
 from experiments.metrics import (
     compute_metrics, run_continual_evaluation, evaluate_model_on_task, print_results
@@ -48,7 +49,7 @@ def run_experiment(
     if model_name == 'lean_ngs':
         model = create_lean_ngs(config.input_dim, config.output_dim, **asdict(config.model))
         train_fn = train_lean_ngs
-        train_kwargs = asdict(config.train)
+        train_kwargs = as_train_kwargs(config.train)
     elif model_name.startswith('mngs_'):
         # Parse profile name (e.g., 'mngs_baseline')
         profile = model_name[5:]
@@ -58,18 +59,20 @@ def run_experiment(
             print(f"Warning: {e}. Using baseline profile.")
             model = create_mngs_from_profile('baseline', config.input_dim, config.output_dim)
         train_fn = train_mngs
-        train_kwargs = asdict(config.train)
+        train_kwargs = as_train_kwargs(config.train)
         # Apply profile-specific train overrides
         if profile in PROFILE_TRAIN_CONFIGS:
             train_kwargs.update(PROFILE_TRAIN_CONFIGS[profile])
     else:
         model = create_baseline(model_name, config.input_dim, config.output_dim)
         train_fn = get_trainer(model_name)
-        train_kwargs = asdict(config.train)
+        train_kwargs = as_train_kwargs(config.train)
 
     # Setup replay buffer for ER/LeanNGS/MNGS
     replay_buffer = None
-    if model_name.startswith('mngs_') or model_name in ['er', 'lean_ngs']:
+    mngs_models = ['mngs_baseline', 'mngs_cfg_net', 'mngs_ultra_edge', 'mngs_abl_hyper',
+                   'mngs_baseline_lora', 'mngs_cfg_net_lora', 'mngs_abl_hyper_lora']
+    if model_name in mngs_models or model_name.startswith('mngs_') or model_name in ['er', 'lean_ngs']:
         replay_buffer = ReplayBuffer(max_size=config.train.replay_size)
 
     # Task loader function
@@ -90,6 +93,11 @@ def run_experiment(
             noisy = NoisyMNIST(n_tasks=config.n_tasks, seed=seed)
             train_loader, test_loader = noisy.get_task_data(task_id, config.train.batch_size)
             classes = list(range(10))
+        elif config.dataset == 'tinyshakespeare':
+            train_loader, test_loader, classes = get_tinyshakespeare_loaders(
+                config.dataset, task_id, config.classes_per_task, config.train.batch_size,
+                n_tasks=config.n_tasks, seq_len=config.input_dim
+            )
         else:
             train_loader, test_loader, classes = get_task_loaders(
                 config.dataset, task_id, config.classes_per_task, config.train.batch_size
@@ -106,8 +114,9 @@ def run_experiment(
 
         # Train
         train_kwargs['replay_buffer'] = replay_buffer
-        if model_name in ['lean_ngs', 'lwf', 'mngs_baseline', 'mngs_cfg_net', 
-                           'mngs_ultra_edge', 'mngs_abl_hyper'] or model_name.startswith('mngs_'):
+        mngs_models = ['mngs_baseline', 'mngs_cfg_net', 'mngs_ultra_edge', 'mngs_abl_hyper',
+                       'mngs_baseline_lora', 'mngs_cfg_net_lora', 'mngs_abl_hyper_lora']
+        if model_name in ['lean_ngs', 'lwf'] + mngs_models or model_name.startswith('mngs_'):
             train_kwargs['old_model'] = old_model
         train_fn(model, train_loader, task_id, device=device, **train_kwargs)
 
@@ -150,7 +159,7 @@ def run_experiment(
             print(f"  Task {task_id} done. Acc on task {task_id}: {accuracy_matrix[task_id, task_id]:.4f}")
 
     # Compute metrics
-    metrics = compute_metrics(accuracy_matrix)
+    metrics = compute_metrics(accuracy_matrix, random_baseline=1.0 / config.output_dim)
     metrics.active_units = active_units_list[-1] if active_units_list else 0
     metrics.max_units = config.model.max_k if model_name == 'lean_ngs' else (
         model.config.max_k if hasattr(model, 'config') and hasattr(model.config, 'max_k') else 0

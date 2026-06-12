@@ -1,7 +1,7 @@
 """
 Experiment configuration for LeanNGS continual learning evaluation.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 import torch
 
@@ -13,10 +13,6 @@ class ModelConfig:
     max_k: int = 448  # ~513K params to match MLP baseline (~534K)
     top_k: int = 8
     lora_rank: int = 4
-    gamma_init: float = 0.1
-    tau_init: float = 1.0
-    mu_init_std: float = 1.0
-    w_init_std: float = 1e-4
 
 
 @dataclass
@@ -142,4 +138,29 @@ EXPERIMENTS = {
         input_dim=3072,
         output_dim=5,
     ),
+    'full_mnist': ExperimentConfig(
+        name='Full-MNIST',
+        dataset='mnist',
+        scenario='class_incremental',
+        n_tasks=1,
+        classes_per_task=10,
+        input_dim=784,
+        output_dim=10,
+    ),
+    'tinyshakespeare': ExperimentConfig(
+        name='TinyShakespeare',
+        dataset='tinyshakespeare',
+        scenario='class_incremental',
+        n_tasks=5,
+        classes_per_task=65,  # full vocab each task
+        input_dim=4160,  # seq_len * vocab_size = 64 * 65
+        output_dim=65,  # vocab size
+    ),
 }
+
+
+def as_train_kwargs(cfg: TrainConfig) -> dict:
+    """Convert TrainConfig to trainer kwargs, mapping epochs_per_task -> epochs."""
+    kw = asdict(cfg)
+    kw['epochs'] = kw.pop('epochs_per_task', 5)
+    return kw

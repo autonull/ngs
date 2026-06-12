@@ -14,7 +14,7 @@ from copy import deepcopy
 from itertools import product
 from dataclasses import asdict
 
-from experiments.config import ExperimentConfig, EXPERIMENTS, ModelConfig, TrainConfig
+from experiments.config import ExperimentConfig, EXPERIMENTS, ModelConfig, TrainConfig, as_train_kwargs
 from experiments.datasets import get_task_loaders, PermutedMNIST, ReplayBuffer
 from experiments.baselines import create_baseline
 from experiments.metrics import compute_metrics, evaluate_model_on_task
@@ -51,11 +51,11 @@ def run_single_experiment(
     if model_name == 'lean_ngs':
         model = create_lean_ngs(config.input_dim, config.output_dim, **model_kwargs)
         train_fn = train_lean_ngs
-        default_train_kwargs = asdict(config.train)
+        default_train_kwargs = as_train_kwargs(config.train)
     else:
         model = create_baseline(model_name, config.input_dim, config.output_dim, **model_kwargs)
         train_fn = get_trainer(model_name)
-        default_train_kwargs = asdict(config.train)
+        default_train_kwargs = as_train_kwargs(config.train)
     
     # Merge train kwargs
     for k, v in default_train_kwargs.items():
@@ -131,7 +131,7 @@ def run_single_experiment(
             active_units_list.append(0)
     
     # Compute metrics
-    metrics = compute_metrics(accuracy_matrix)
+    metrics = compute_metrics(accuracy_matrix, random_baseline=1.0 / config.output_dim)
     metrics.active_units = active_units_list[-1] if active_units_list else 0
     metrics.max_units = config.model.max_k if model_name == 'lean_ngs' else 0
     
@@ -176,7 +176,7 @@ def run_ablation(
         model_params = {}
         train_params = {}
         for k, v in param_dict.items():
-            if k in ['d_latent', 'k_init', 'max_k', 'top_k', 'gamma_init', 'tau_init', 'mu_init_std', 'w_init_std']:
+            if k in ['d_latent', 'k_init', 'max_k', 'top_k', 'lora_rank']:
                 model_params[k] = v
             else:
                 train_params[k] = v

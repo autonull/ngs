@@ -382,6 +382,15 @@ def get_task_loaders(
         return train_loader, test_loader, classes
     elif config_name == 'svhn':
         return create_split_loaders('svhn', task_id, classes_per_task, batch_size)
+    elif config_name == 'mnist':
+        # Full MNIST: all 10 classes in one task
+        transform = get_transform('mnist', augment=False)
+        train_ds = datasets.MNIST('./data', train=True, download=True, transform=transform)
+        test_ds = datasets.MNIST('./data', train=False, download=True, transform=transform)
+        classes = list(range(10))
+        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+        test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+        return train_loader, test_loader, classes
     else:
         raise ValueError(f"Unknown config: {config_name}")
 

@@ -12,8 +12,9 @@ incomplete or fragile but not producing wrong results.
 ## M1: FIX — Correctness Sprint
 
 *Goal: all bugs that silently skew experimental results are eliminated.*
+**Status: ✅ COMPLETE (7/7)**
 
-### M1.1 Training duration bug
+### M1.1 Training duration bug `[FIXED]`
 - **Area**: `experiments/runner.py:51`, `experiments/ablation.py:96`,
   `experiments/quick_runner.py:144`
 - **Problem**: `asdict(config.train)` produces `epochs_per_task=N`, but all
@@ -39,7 +40,7 @@ incomplete or fragile but not producing wrong results.
   iteration per epoch (not 5).  Or simply: `pytest` passes on new
   `test_end_to_end.py` (#M4.1).
 
-### M1.2 Double-softmax in entropy_loss
+### M1.2 Double-softmax in entropy_loss `[FIXED]`
 - **Area**: `mngs/model.py:216-219`
 - **Problem**: `MonolithicRouter.forward()` already returns
   `F.softmax(topk_vals, dim=-1)` as its second output.  Then `entropy_loss`
@@ -54,7 +55,7 @@ incomplete or fragile but not producing wrong results.
   passes.  Also add an explicit check: entropy of uniform weights should be
   `log(K)`.  With double-softmax it is not.
 
-### M1.3 FWT random baseline is always 0.1
+### M1.3 FWT random baseline is always 0.1 `[FIXED]`
 - **Area**: `experiments/metrics.py:64,91`
 - **Problem**: `compute_metrics()` hard-codes `random_baseline=0.1` (correct only
   for 10-class tasks).  Split-MNIST has 2 classes (random=0.5),
@@ -75,7 +76,7 @@ incomplete or fragile but not producing wrong results.
 - **Verification**: `pytest` passes.  Manual: `compute_metrics(acc_matrix_2class, 0.5)`
   returns different FWT from `compute_metrics(acc_matrix_2class, 0.1)`.
 
-### M1.4 HPO tunes a dead `top_k` field
+### M1.4 HPO tunes a dead `top_k` field `[FIXED]`
 - **Area**: `experiments/hpo.py:34`
 - **Problem**: `config.train.top_k = trial.suggest_categorical(...)` sets an
   attribute on `TrainConfig`, but `TrainConfig` has no `top_k` dataclass field.
@@ -86,7 +87,7 @@ incomplete or fragile but not producing wrong results.
 - **Verification**: After fix, run `hpo.py` with 1 trial and print the config.
   `config.model.top_k` must be the suggested value.
 
-### M1.5 `nn.Parameter` registered outside `nn.Module`
+### M1.5 `nn.Parameter` registered outside `nn.Module` `[FIXED]`
 - **Area**: `mngs/modules/topology_managers.py:191-198`
 - **Problem**: `ContinuousDensityManager` inherits from `BaseTopologyManager(ABC)`,
   not `nn.Module`.  `nn.Parameter(...)` creates an unregistered tensor that
@@ -106,7 +107,7 @@ incomplete or fragile but not producing wrong results.
   `model.to(device)` moves it.  `out.sum().backward()` shows non-None
   `model.split_gate.grad`.
 
-### M1.6 `__import__` hack in quick_runner
+### M1.6 `__import__` hack in quick_runner `[FIXED]`
 - **Area**: `experiments/quick_runner.py:259,270,283`
 - **Problem**: `__import__('experiments.config').config.TrainConfig(...)` is
   fragile with namespace packages (no `__init__.py` in `experiments/`).
@@ -116,7 +117,7 @@ incomplete or fragile but not producing wrong results.
 - **Verification**: `python -m experiments.quick_runner --help` runs without
   import errors.
 
-### M1.7 Missing random seeds
+### M1.7 Missing random seeds `[FIXED]`
 - **Area**: `train_split_mnist.py`, `tests/*.py`
 - **Problem**: `train_split_mnist.py` sets no seeds at all.  Tests have no seed
   setting.
@@ -142,8 +143,9 @@ incomplete or fragile but not producing wrong results.
 ## M2: BUILD — Complete the Framework
 
 *Goal: all modular abstractions are fully wired, no stubs, no dead code.*
+**Status: ◐ 9/10 complete — M2.3 not done (non-blocking for existing profiles)**
 
-### M2.1 Wire `config.memory_management` into the model
+### M2.1 Wire `config.memory_management` into the model `[FIXED]`
 - **Area**: `mngs/model.py`, `mngs/core/config.py`
 - **Depends on**: M1.5 (param registration)
 - **Problem**: `MemoryManagement` enum is defined, stored in config, set by
@@ -168,7 +170,12 @@ incomplete or fragile but not producing wrong results.
   - `DYNAMIC_GROWTH`: `len(model.router.mu)` grows by splitting.
   - `STRICT_CAPACITY`: `model.K <= max_k` after every `adapt_density` call.
 
-### M2.2 ContinuousDensityManager: implement differentiable split gate
+### M2.2 ContinuousDensityManager: implement differentiable split gate `[FIXED]`
+
+- **Area**: `mngs/modules/topology_managers.py:173-222`
+- **Depends on**: M1.5, M2.1
+- **Fix implemented**: `MNGS.forward()` updates density EMA. `split_gate_loss()` method added. `ContinuousDensityManager.adapt_topology()` executes splits when `sigmoid(gamma) > 0.5 & error_density > 1e-3`.
+- **Verification**: `pytest` passes.
 - **Area**: `mngs/modules/topology_managers.py:173-222`
 - **Depends on**: M1.5 (gate registration), M2.1 (MemoryManagement wiring)
 - **Problem**: `adapt_topology()` only prunes (lines 210-221).  It always
@@ -201,7 +208,9 @@ incomplete or fragile but not producing wrong results.
 - **Verification**: `model.adapt_density()` returns `(0, N>0, 0)` after enough
   forward+backward steps on data with high local error.  `model.K` increases.
 
-### M2.3 FactorizedRouter + ParameterStore integration
+### M2.3 FactorizedRouter + ParameterStore integration `[NOT DONE]`
+
+`[DESIGN]` = incomplete but not producing wrong results. Only exercised when `DYNAMIC_GROWTH` paired with `FACTORIZED_SUBSPACE` — no current profile does this. No blocking issues.
 - **Area**: `mngs/model.py:174-200`
 - **Depends on**: M2.1
 - **Problem**: `_forward_factorized` converts subspace-local indices to global
@@ -222,7 +231,7 @@ incomplete or fragile but not producing wrong results.
   vs `FACTORIZED` with `num_subspaces=1` (should produce identical global
   behavior).  Cross-reference with `_forward_standard`.
 
-### M2.4 Wire `diversity_loss` into training
+### M2.4 Wire `diversity_loss` into training `[FIXED]`
 - **Area**: `experiments/mngs_trainer.py:72`
 - **Problem**: `diversity_weight` is accepted as a param but `diversity_loss()`
   is never called in the loss sum.
@@ -236,7 +245,7 @@ incomplete or fragile but not producing wrong results.
   when it is 0.  Test with `model.diversity_loss().backward()` — gradients
   flow into `model.router.mu`.
 
-### M2.5 Absorb prototype1 hook-based grad EMA
+### M2.5 Absorb prototype1 hook-based grad EMA `[FIXED]`
 - **Area**: `mngs/model.py:221-232` (current `update_grad_ema`), `mngs/modules/routers.py`
 - **Problem**: Current code calls `model.update_grad_ema()` manually in the
   training loop (`mngs_trainer.py:76`).  If the caller forgets, the EMA never
@@ -251,7 +260,7 @@ incomplete or fragile but not producing wrong results.
 - **Verification**: Remove `model.update_grad_ema()` from `mngs_trainer.py:76`.
   Run training — `model.grad_mu_ema` still updates (non-zero after backward).
 
-### M2.6 Fix enum string comparisons
+### M2.6 Fix enum string comparisons `[FIXED]`
 - **Area**: `mngs/model.py:54,61,70,84,91,106,112`
 - **Problem**: Uses `routing.name == "MONOLITHIC_MAHALANOBIS"` instead of
   `routing == RoutingStrategy.MONOLITHIC_MAHALANOBIS`.  Fragile under rename.
@@ -261,64 +270,18 @@ incomplete or fragile but not producing wrong results.
   runtime error.  Test: `model = build_mngs(..., config=CFG_Net_Full())`
   builds a `FactorizedRouter` (not `Monolithic`).
 
-### M2.7 Fix integer division capacity loss
+### M2.7 Fix integer division capacity loss `[FIXED]`
 - **Area**: `mngs/model.py:62`, `mngs/modules/routers.py:124`
-- **Problem**: `k_init // num_subspaces` can silently lose capacity (e.g.,
-  `10 // 4 = 2`, total = 8 instead of 10).  `d_latent // num_subspaces` can
-  give zero-dim projectors when `num_subspaces > d_latent`.
-- **Fix**:
-  - For units: `units_per_space = k_init // num_subspaces` → `ceil(k_init / num_subspaces)`
-    to not lose capacity.  Last subspace may have fewer units.
-  - For subspaces: `d_sub = d_latent // num_subspaces` with a minimum of 1.
-    The last `d_latent % num_subspaces` dimensions are dropped (acceptable,
-    common in subspace methods).
-  - Add a warning if `d_latent < num_subspaces` or `k_init < num_subspaces`.
+- **Fix**: `k_init // num_subspaces` → `-(-a // b)` ceiling div. `d_latent // num_subspaces` → `max(d // n, 1)`.
 - **Verification**: `FactorizedRouter(d_latent=32, num_subspaces=3, units_per_space=10)`
   has total units >= `k_init`.  `FactorizedRouter(d_latent=3, num_subspaces=10)`
   raises a warning but does not crash.
 
-### M2.8 Fix `log_alpha` halving in probability space
-- **Area**: `mngs/modules/topology_managers.py:130-132`, `lean_ngs.py:133,145`
-- **Problem**: `log_alpha += log(0.5)` intends to halve alpha, but
-  `sigmoid(x + log(0.5)) ≠ 0.5 * sigmoid(x)`.
-- **Fix**: Convert to probability space, halve, convert back:
-  ```python
-  alpha = torch.sigmoid(log_alpha_split)
-  new_alpha = alpha * 0.5
-  new_log_alpha = torch.logit(new_alpha)
-  ```
-  Apply to both parent and child.
-- **Verification**: Before fix, `alpha` halves by an unpredictable fraction.
-  After fix, `alpha` drops by exactly 0.5x.  Add a unit test that checks
-  `sigmoid(output_log_alpha) == 0.5 * sigmoid(input_log_alpha)`.
+### M2.8 Fix `log_alpha` halving in probability space `[FIXED]`
 
-### M2.9 Clean up dead config fields
-- **Area**: `mngs/core/config.py:37,46,61,62`, `experiments/config.py:16-19`
-- **Problem**: 6 config fields are defined but never read:
-  - `MNGSConfig.output_dim` (not used by `MNGS.__init__`)
-  - `MNGSConfig.memory_management` (will be fixed by M2.1)
-  - `MNGSConfig.diversity_weight` (will be fixed by M2.4)
-  - `MNGSConfig.entropy_weight` (only read by trainer, not model)
-  - `ModelConfig.gamma_init, tau_init, mu_init_std, w_init_std`
-- **Fix**: Three categories:
-  - **Wired now**: `diversity_weight`, `memory_management` — leave in config.
-  - **Never used**: `output_dim` — remove from `MNGSConfig` (model receives
-    `d_out` at init).  `gamma_init, tau_init, mu_init_std, w_init_std` —
-    remove from `ModelConfig`.
-  - **Trainer-only**: `entropy_weight` — leave in config, document as
-    "consumed by `train_mngs`, not by the model".
-- **Verification**: `asdict(MNGSConfig())` has exactly the fields that code
-  actually reads.  No "attribute does not exist" error anywhere.
+### M2.9 Clean up dead config fields `[FIXED]`
 
-### M2.10 Restore `tau` as learnable parameter
-- **Area**: `mngs/modules/routers.py:39`, `lean_ngs.py:18`
-- **Problem**: Was `nn.Parameter` in original, now a plain float.  Temperature
-  annealing is no longer possible.
-- **Fix**: Change `self.tau = nn.Parameter(torch.tensor(tau))` in
-  `MonolithicRouter` and `FactorizedRouter`.  Update `MNGSConfig.tau` type
-  documentation to reflect that this initializes a learnable param.
-- **Verification**: After training, `model.router.tau` value differs from its
-  initial value (gradients flowed into it).
+### M2.10 Restore `tau` as learnable parameter `[FIXED]`
 
 ---
 
@@ -516,15 +479,15 @@ incomplete or fragile but not producing wrong results.
 M1.1 ──→ M1.2 ──→ M1.3 ──→ M1.4 ──→ M1.5 ──→ M1.6 ──→ M1.7
      (M1.1—M1.4 independent of each other; M1.5 independent of M1.1—M1.4)
 
-M1 complete ──→ M2.1 ──→ M2.2 ──→ M2.3 ──→ M2.4 ──→ M2.5
+M1 complete ──→ M2.1 ──→ M2.2 ──→ M2.3[TODO] ──→ M2.4 ──→ M2.5
                      │         │         │
                      └──── M2.6 ──→ M2.7 ──→ M2.8 ──→ M2.9 ──→ M2.10
-                          (independent of model wiring)
+                          (all complete except M2.3)
 
-M1+M2 complete ──→ M3.1 ──→ M3.2 ──→ M3.3 ──→ M3.4
-                              │         │
-                              └──── M3.5 ──→ M3.6 ──→ M3.7
-                                   (analysis, not training)
+M1+M2(mostly) ──→ M3.1 ──→ M3.2 ──→ M3.3 ──→ M3.4
+                               │         │
+                               └──── M3.5 ──→ M3.6 ──→ M3.7
+                                    (analysis, not training)
 
 M1+M2+M3 complete ──→ M4.1 ──→ M4.2 ──→ M4.3 ──→ M4.4 ──→ M4.5 ──→ M4.6
 ```
@@ -534,7 +497,7 @@ Blocking chains:
 - M2.1 → M2.3 (FactorizedRouter needs MemoryManagement)
 - M2.1 → M2.5 (dynamic growth needs MemoryManagement)
 - M3.2 requires M1.1, M1.3 (training duration + metrics correctness)
-- M3.3 requires M2 (framework complete)
+- M3.3 requires M2 (framework complete, M2.3 is non-blocking)
 - M3.4 requires M1 (no framework changes needed for baselines)
 
 Everything else can be run in parallel within a milestone.
@@ -543,10 +506,10 @@ Everything else can be run in parallel within a milestone.
 
 ## Task Count
 
-| Milestone | Tasks | Training runs required |
-|-----------|-------|----------------------|
-| M1 Fix | 7 | 0 |
-| M2 Build | 10 | 0 |
-| M3 Run | 7 | ~380 (5 lean_ngs + 4 mngs + 6 baselines + 11 datasets × 3 seeds) |
-| M4 Package | 6 | 2 (full_mnist + tinyshakespeare) |
-| **Total** | **30** | **~382** |
+| Milestone | Tasks | Complete | Remaining | Training runs required |
+|-----------|-------|----------|-----------|----------------------|
+| M1 Fix | 7 | 7 | 0 | 0 |
+| M2 Build | 10 | 9 | 1 (M2.3) | 0 |
+| M3 Run | 7 | 0 | 7 | ~382 |
+| M4 Package | 6 | 0 | 6 | 2 |
+| **Total** | **30** | **16** | **14** | **~382** |

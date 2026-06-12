@@ -34,7 +34,6 @@ class MNGSConfig:
     """Configuration for a Modular Neural Gaussian System instance."""
     # Core Dimensions
     latent_dim: int = 32
-    output_dim: int = 64
     k_init: int = 128
     max_k: int = 512
     top_k: int = 8
@@ -55,8 +54,9 @@ class MNGSConfig:
     
     # Training hyperparameters
     lora_rank: int = 4
+    use_lora: bool = True  # False = full adapters for param-matched comparison
     tau: float = 1.0
     gamma_residual: float = 0.1
     ema_decay: float = 0.99
     diversity_weight: float = 0.01
-    entropy_weight: float = 0.01
+    entropy_weight: float = 0.01  # consumed by train_mngs, not by the model

@@ -70,10 +70,9 @@ def train_mngs(model, train_loader: DataLoader, task_id: int,
             entropy_loss = model.entropy_loss(x)
 
             total_loss = ce_loss + kd_weight * kd_loss + entropy_weight * entropy_loss
+            if diversity_weight > 0:
+                total_loss += diversity_weight * model.diversity_loss()
             total_loss.backward()
-
-            # Gradient EMA for topology
-            model.update_grad_ema()
 
             optimizer.step()
 
@@ -84,9 +83,6 @@ def train_mngs(model, train_loader: DataLoader, task_id: int,
 
         # Adaptive density control (split/prune)
         if adapt_every_epoch:
-            # Update grad_ema before density adaptation
-            if hasattr(model, 'update_grad_ema'):
-                model.update_grad_ema()
             model.adapt_density(
                 split_thresh=split_thresh,
                 prune_thresh=prune_thresh,
@@ -113,19 +109,34 @@ def create_mngs(input_dim: int, output_dim: int, config: 'MNGSConfig' = None, **
 
 def create_mngs_from_profile(name: str, input_dim: int, output_dim: int) -> torch.nn.Module:
     """Create MNGS from a named profile."""
-    from mngs.profiles import Baseline_LeanNGS, CFG_Net_Full, Ultra_Edge_Sparse, Ablation_Hypernetwork_Only
+    from mngs.profiles import (
+        Baseline_LeanNGS, Baseline_LeanNGS_ParamMatched,
+        CFG_Net_Full, CFG_Net_Full_ParamMatched,
+        Ultra_Edge_Sparse,
+        Ablation_Hypernetwork_Only, Ablation_Hypernetwork_Only_ParamMatched
+    )
 
+    # Parameter-matched profiles (for fair comparison with MLP/EWC/SI/LwF/ER baselines)
     profiles = {
-        'baseline': Baseline_LeanNGS(),
-        'cfg_net': CFG_Net_Full(),
+        'baseline': Baseline_LeanNGS_ParamMatched(),
+        'cfg_net': CFG_Net_Full_ParamMatched(),
         'ultra_edge': Ultra_Edge_Sparse(),
-        'abl_hyper': Ablation_Hypernetwork_Only(),
+        'abl_hyper': Ablation_Hypernetwork_Only_ParamMatched(),
     }
 
-    if name not in profiles:
-        raise ValueError(f"Unknown profile: {name}. Choose from {list(profiles.keys())}")
+    # LoRA-efficient versions (for efficiency comparisons)
+    lora_profiles = {
+        'baseline_lora': Baseline_LeanNGS(),
+        'cfg_net_lora': CFG_Net_Full(),
+        'abl_hyper_lora': Ablation_Hypernetwork_Only(),
+    }
 
-    config = profiles[name]
+    all_profiles = {**profiles, **lora_profiles}
+
+    if name not in all_profiles:
+        raise ValueError(f"Unknown profile: {name}. Choose from {list(all_profiles.keys())}")
+
+    config = all_profiles[name]
     return build_mngs(input_dim, output_dim, config)
 
 
@@ -150,6 +161,24 @@ PROFILE_TRAIN_CONFIGS = {
         'adapt_every_epoch': True,
     },
     'abl_hyper': {
+        'lr': 1e-3,
+        'split_thresh': 0.005,
+        'prune_thresh': 0.01,
+        'adapt_every_epoch': True,
+    },
+    'baseline_lora': {
+        'lr': 1e-3,
+        'split_thresh': 0.005,
+        'prune_thresh': 0.01,
+        'adapt_every_epoch': True,
+    },
+    'cfg_net_lora': {
+        'lr': 1e-3,
+        'split_thresh': 0.005,
+        'prune_thresh': 0.01,
+        'adapt_every_epoch': True,
+    },
+    'abl_hyper_lora': {
         'lr': 1e-3,
         'split_thresh': 0.005,
         'prune_thresh': 0.01,

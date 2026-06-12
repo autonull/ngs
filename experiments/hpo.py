@@ -31,7 +31,7 @@ def create_objective(
         config.train.split_thresh = trial.suggest_float('split_thresh', 0.001, 0.05, log=True)
         config.train.prune_thresh = trial.suggest_float('prune_thresh', 0.005, 0.05)
         config.train.replay_ratio = trial.suggest_float('replay_ratio', 0.5, 2.0)
-        config.train.top_k = trial.suggest_categorical('top_k', [4, 8, 16])
+        config.model.top_k = trial.suggest_categorical('top_k', [4, 8, 16])
         config.model.d_latent = trial.suggest_categorical('d_latent', [16, 32, 64, 128])
         
         try:

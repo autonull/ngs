@@ -78,8 +78,8 @@ class HeuristicManager(BaseTopologyManager):
         log_alpha = model.router.log_alpha[active_idx]
         alpha = torch.sigmoid(log_alpha)
         
-        # Access EMA tracker from model
-        grad_ema = model.grad_mu_ema[active_idx]
+        # Access EMA tracker from router
+        grad_ema = model.router.grad_mu_ema[active_idx]
         max_s = torch.exp(model.router.log_s[active_idx]).max(dim=-1).values
         
         num_pruned = 0
@@ -91,7 +91,7 @@ class HeuristicManager(BaseTopologyManager):
         if prune_mask.any():
             prune_idx = active_idx[prune_mask]
             model.router.active_mask[prune_idx] = False
-            model.grad_mu_ema[prune_idx] = 0
+            model.router.grad_mu_ema[prune_idx] = 0
             num_pruned = prune_mask.sum().item()
         
         # Recompute active after pruning
@@ -102,7 +102,7 @@ class HeuristicManager(BaseTopologyManager):
         # Split high-gradient units
         log_alpha = model.router.log_alpha[active_idx]
         alpha = torch.sigmoid(log_alpha)
-        grad_ema = model.grad_mu_ema[active_idx]
+        grad_ema = model.router.grad_mu_ema[active_idx]
         max_s = torch.exp(model.router.log_s[active_idx]).max(dim=-1).values
         
         split_mask = (grad_ema > split_thresh) & (max_s > split_thresh)
@@ -126,14 +126,16 @@ class HeuristicManager(BaseTopologyManager):
                 model.router.log_s.data[new_idx] += torch.log(torch.tensor(self.split_scale))
                 model.router.log_s.data[split_idx] += torch.log(torch.tensor(self.split_scale))
                 
-                # Copy and halve alpha
+                # Copy and halve alpha in probability space
                 model.router.log_alpha.data[new_idx] = model.router.log_alpha[split_idx].clone()
-                model.router.log_alpha.data[new_idx] += torch.log(torch.tensor(0.5))
-                model.router.log_alpha.data[split_idx] += torch.log(torch.tensor(0.5))
+                alpha_new = torch.sigmoid(model.router.log_alpha.data[new_idx])
+                model.router.log_alpha.data[new_idx] = torch.logit(alpha_new * 0.5, eps=1e-8)
+                alpha_split = torch.sigmoid(model.router.log_alpha.data[split_idx])
+                model.router.log_alpha.data[split_idx] = torch.logit(alpha_split * 0.5, eps=1e-8)
                 
                 # Reset EMA
-                model.grad_mu_ema[new_idx] = 0
-                model.grad_mu_ema[split_idx] = 0
+                model.router.grad_mu_ema[new_idx] = 0
+                model.router.grad_mu_ema[split_idx] = 0
                 
                 # Mark active
                 model.router.active_mask[new_idx] = True
@@ -163,7 +165,7 @@ class HeuristicManager(BaseTopologyManager):
                         model.router.mu.data[spawn_idx] = uncovered_z[:n_spawn]
                         model.router.log_s.data[spawn_idx].fill_(0.0)
                         model.router.log_alpha.data[spawn_idx].fill_(0.0)
-                        model.grad_mu_ema[spawn_idx] = 0
+                        model.router.grad_mu_ema[spawn_idx] = 0
                         model.router.active_mask[spawn_idx] = True
                         num_spawned = n_spawn
         
@@ -182,30 +184,24 @@ class ContinuousDensityManager(BaseTopologyManager):
                  split_threshold: float = 0.05,
                  prune_threshold: float = 0.01,
                  density_decay: float = 0.99,
-                 gamma_init: float = 0.0):
+                 split_gate_threshold: float = 0.5,
+                 noise_std: float = 0.01):
         self.split_threshold = split_threshold
         self.prune_threshold = prune_threshold
         self.density_decay = density_decay
-        self.gamma_init = gamma_init
-    
-    def initialize_gates(self, max_k: int, device: torch.device):
-        """Initialize split gates parameters."""
-        self.split_gate = nn.Parameter(
-            torch.full((max_k,), self.gamma_init, device=device)
-        )
-        self.activation_density = torch.zeros(max_k, device=device)
-        self.error_density = torch.zeros(max_k, device=device)
+        self.split_gate_threshold = split_gate_threshold
+        self.noise_std = noise_std
     
     def adapt_topology(self, model, split_thresh: float = None,
                        prune_thresh: float = None, **kwargs):
         """
         Differentiable topology adaptation via split gates.
         
-        The forward pass blends parent and child outputs using gamma.
-        Loss regularizer pushes gamma to 0 or 1.
+        Executes a split when split_gate > threshold and error density is high.
         """
         if not hasattr(model.router, 'active_mask'):
             return 0, 0, 0
+        
         prune_thresh = prune_thresh if prune_thresh is not None else self.prune_threshold
         active_idx = model.router.active_mask.nonzero(as_tuple=True)[0]
         log_alpha = model.router.log_alpha[active_idx]
@@ -216,7 +212,48 @@ class ContinuousDensityManager(BaseTopologyManager):
         if prune_mask.any():
             prune_idx = active_idx[prune_mask]
             model.router.active_mask[prune_idx] = False
-            model.grad_mu_ema[prune_idx] = 0
+            model.router.grad_mu_ema[prune_idx] = 0
             num_pruned = prune_mask.sum().item()
+        
+        # Split gate execution
+        active_idx = model.router.active_mask.nonzero(as_tuple=True)[0]
+        gamma = torch.sigmoid(model.split_gate[active_idx])
+        err_density = model.error_density[active_idx]
+        split_mask = (gamma > self.split_gate_threshold) & (err_density > 1e-3)
+        
+        if split_mask.any():
+            free_slots = (~model.router.active_mask).nonzero(as_tuple=True)[0]
+            n_available = len(free_slots)
+            split_idx = active_idx[split_mask]
+            n_split = min(len(split_idx), n_available)
+            
+            if n_split > 0:
+                split_idx = split_idx[:n_split]
+                new_idx = free_slots[:n_split]
+                
+                # Copy and perturb mean
+                model.router.mu.data[new_idx] = model.router.mu[split_idx].clone()
+                noise = torch.randn_like(model.router.mu[split_idx]) * self.noise_std
+                model.router.mu.data[new_idx] += noise
+                
+                # Copy log_s and scale
+                model.router.log_s.data[new_idx] = model.router.log_s[split_idx].clone()
+                half_scale = torch.log(torch.tensor(0.5))
+                model.router.log_s.data[new_idx] += half_scale
+                model.router.log_s.data[split_idx] += half_scale
+                
+                # Copy log_alpha
+                model.router.log_alpha.data[new_idx] = model.router.log_alpha[split_idx].clone()
+                
+                # Reset gates for both parent and child
+                model.split_gate.data[new_idx] = 0.0
+                model.split_gate.data[split_idx] = 0.0
+                model.activation_density[new_idx] = 0.0
+                model.error_density[new_idx] = 0.0
+                
+                # Mark active
+                model.router.active_mask[new_idx] = True
+                
+                return num_pruned, n_split, 0
         
         return num_pruned, 0, 0
