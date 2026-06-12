@@ -270,9 +270,9 @@ QUICK_ABLATIONS = {
     },
     'split_cifar10': {
         'kd_weight': [0.0, 2.0],
-        'split_thresh': [0.005, 0.01],
+        'split_thresh': [0.005],
         'top_k': [8],
-        'd_latent': [32, 64],
+        'd_latent': [32],
         'epochs_per_task': [1],
     },
 }

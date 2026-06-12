@@ -105,4 +105,5 @@ def create_lean_ngs(input_dim: int, output_dim: int, **config) -> LeanNGS:
         k_init=config.get('k_init', 128),
         max_k=config.get('max_k', 1024),
         top_k=config.get('top_k', 8),
+        lora_rank=config.get('lora_rank', 4),
     )

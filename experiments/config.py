@@ -10,8 +10,9 @@ import torch
 class ModelConfig:
     d_latent: int = 32
     k_init: int = 128
-    max_k: int = 1024
+    max_k: int = 448  # ~513K params to match MLP baseline (~534K)
     top_k: int = 8
+    lora_rank: int = 4
     gamma_init: float = 0.1
     tau_init: float = 1.0
     mu_init_std: float = 1.0
@@ -104,5 +105,41 @@ EXPERIMENTS = {
         classes_per_task=2,
         input_dim=64,
         output_dim=2,
+    ),
+    'rotated_mnist': ExperimentConfig(
+        name='Rotated-MNIST',
+        dataset='rotated_mnist',
+        scenario='domain_incremental',
+        n_tasks=10,
+        classes_per_task=10,
+        input_dim=784,
+        output_dim=10,
+    ),
+    'blurry_mnist': ExperimentConfig(
+        name='Blurry-MNIST',
+        dataset='blurry_mnist',
+        scenario='domain_incremental',
+        n_tasks=5,
+        classes_per_task=10,
+        input_dim=784,
+        output_dim=10,
+    ),
+    'noisy_mnist': ExperimentConfig(
+        name='Noisy-MNIST',
+        dataset='noisy_mnist',
+        scenario='domain_incremental',
+        n_tasks=5,
+        classes_per_task=10,
+        input_dim=784,
+        output_dim=10,
+    ),
+    'split_cifar100_20': ExperimentConfig(
+        name='Split-CIFAR100-20',
+        dataset='split_cifar100',
+        scenario='class_incremental',
+        n_tasks=20,
+        classes_per_task=5,
+        input_dim=3072,
+        output_dim=5,
     ),
 }

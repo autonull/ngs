@@ -12,7 +12,7 @@ from copy import deepcopy
 from tqdm import tqdm
 
 from experiments.config import ExperimentConfig, EXPERIMENTS, ModelConfig, TrainConfig
-from experiments.datasets import get_task_loaders, PermutedMNIST, ReplayBuffer
+from experiments.datasets import get_task_loaders, PermutedMNIST, RotatedMNIST, BlurryMNIST, NoisyMNIST, ReplayBuffer
 from experiments.baselines import create_baseline
 from experiments.metrics import (
     compute_metrics, run_continual_evaluation, evaluate_model_on_task, print_results
@@ -63,6 +63,18 @@ def run_experiment(
         if config.dataset == 'permuted_mnist':
             permuted = PermutedMNIST(n_tasks=config.n_tasks, seed=seed)
             train_loader, test_loader = permuted.get_task_data(task_id, config.train.batch_size)
+            classes = list(range(10))
+        elif config.dataset == 'rotated_mnist':
+            rotated = RotatedMNIST(n_tasks=config.n_tasks, seed=seed)
+            train_loader, test_loader = rotated.get_task_data(task_id, config.train.batch_size)
+            classes = list(range(10))
+        elif config.dataset == 'blurry_mnist':
+            blurry = BlurryMNIST(n_tasks=config.n_tasks, seed=seed)
+            train_loader, test_loader = blurry.get_task_data(task_id, config.train.batch_size)
+            classes = list(range(10))
+        elif config.dataset == 'noisy_mnist':
+            noisy = NoisyMNIST(n_tasks=config.n_tasks, seed=seed)
+            train_loader, test_loader = noisy.get_task_data(task_id, config.train.batch_size)
             classes = list(range(10))
         else:
             train_loader, test_loader, classes = get_task_loaders(

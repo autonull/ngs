@@ -4,11 +4,12 @@ import torch.nn.functional as F
 
 
 class LeanNGS(nn.Module):
-    def __init__(self, d_in, d_out, d_latent=32, k_init=128, max_k=512, top_k=8):
+    def __init__(self, d_in, d_out, d_latent=32, k_init=128, max_k=512, top_k=8, lora_rank=4):
         super().__init__()
         self.d_latent = d_latent
         self.top_k = top_k
         self.max_k = max_k
+        self.lora_rank = lora_rank
         self.eps = 1e-5
 
         self.p_down = nn.Linear(d_in, d_latent, bias=False)
@@ -23,7 +24,10 @@ class LeanNGS(nn.Module):
         self.mu = nn.Parameter(torch.randn(max_k, d_latent) * 1.0)
         self.log_s = nn.Parameter(torch.zeros(max_k, d_latent))
         self.log_alpha = nn.Parameter(torch.zeros(max_k))
-        self.W = nn.Parameter(torch.randn(max_k, d_latent, d_latent) * 1e-4)
+        
+        # LoRA-style low-rank adapters: W = A @ B where A: [d, r], B: [r, d]
+        self.W_A = nn.Parameter(torch.randn(max_k, d_latent, lora_rank) * 1e-2)
+        self.W_B = nn.Parameter(torch.randn(max_k, lora_rank, d_latent) * 1e-2)
 
         # EMA of gradient magnitudes for splitting
         self.register_buffer('grad_mu_ema', torch.zeros(max_k))
@@ -40,7 +44,8 @@ class LeanNGS(nn.Module):
         mu = self.mu[active_idx]           # [K, d]
         log_s = self.log_s[active_idx]     # [K, d]
         log_alpha = self.log_alpha[active_idx]  # [K]
-        W = self.W[active_idx]             # [K, d, d]
+        W_A = self.W_A[active_idx]         # [K, d, r]
+        W_B = self.W_B[active_idx]         # [K, r, d]
 
         # Diagonal Mahalanobis in log-space
         diff = z.unsqueeze(1) - mu.unsqueeze(0)           # [B, K, d]
@@ -52,8 +57,16 @@ class LeanNGS(nn.Module):
         topk_vals, topk_rel_idx = torch.topk(log_w, min(self.top_k, self.K), dim=-1)  # [B, top_k]
 
         weights = F.softmax(topk_vals, dim=-1).unsqueeze(-1)        # [B, top_k, 1]
-        W_topk = W[topk_rel_idx]                                     # [B, top_k, d, d]
-        local_out = torch.einsum('bd,bkdd->bkd', z, W_topk)          # [B, top_k, d]
+        
+        # LoRA: W = A @ B, so W @ z = A @ (B @ z)
+        W_A_topk = W_A[topk_rel_idx]  # [B, top_k, d, r]
+        W_B_topk = W_B[topk_rel_idx]  # [B, top_k, r, d]
+        
+        # B @ z: [B, top_k, r, d] @ [B, d] -> [B, top_k, r]
+        Bz = torch.einsum('bkrd,bd->bkr', W_B_topk, z)
+        # A @ (Bz): [B, top_k, d, r] @ [B, top_k, r] -> [B, top_k, d]
+        local_out = torch.einsum('bkdr,bkr->bkd', W_A_topk, Bz)
+        
         blended = (weights * local_out).sum(dim=1)                   # [B, d]
 
         return self.p_up(blended + self.gamma * z)
@@ -119,7 +132,11 @@ class LeanNGS(nn.Module):
                 self.mu[new_idx] = self.mu[split_idx] + torch.randn_like(self.mu[split_idx]) * noise_std
                 self.log_s[new_idx] = self.log_s[split_idx] + torch.log(torch.tensor(split_scale))
                 self.log_alpha[new_idx] = self.log_alpha[split_idx] + torch.log(torch.tensor(0.5))
-                self.W[new_idx] = torch.randn_like(self.W[split_idx]) * 1e-4
+                
+                # Initialize LoRA adapters for new units
+                self.W_A[new_idx] = torch.randn_like(self.W_A[split_idx]) * 1e-2
+                self.W_B[new_idx] = torch.randn_like(self.W_B[split_idx]) * 1e-2
+                
                 self.grad_mu_ema[new_idx] = 0
                 self.active_mask[new_idx] = True
 
@@ -156,7 +173,11 @@ class LeanNGS(nn.Module):
                         self.mu[spawn_idx] = uncovered_z[:n_spawn]
                         self.log_s[spawn_idx].fill_(0.0)  # s=1
                         self.log_alpha[spawn_idx].fill_(0.0)  # alpha=0.5
-                        self.W[spawn_idx] = torch.randn_like(self.W[spawn_idx]) * 1e-4
+                        
+                        # Initialize LoRA adapters for spawned units
+                        self.W_A[spawn_idx] = torch.randn_like(self.W_A[spawn_idx]) * 1e-2
+                        self.W_B[spawn_idx] = torch.randn_like(self.W_B[spawn_idx]) * 1e-2
+                        
                         self.grad_mu_ema[spawn_idx] = 0
                         self.active_mask[spawn_idx] = True
                         print(f"Spawned {n_spawn} units in uncovered regions (K={self.K})")
