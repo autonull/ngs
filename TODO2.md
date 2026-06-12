@@ -1,343 +1,552 @@
-# MNGS / LeanNGS Development Plan (TODO2.md)
+# MNGS — Development Plan
 
-Single-source-of-truth plan consolidating all incomplete items from TODO.md, prototype1
-ideas to absorb, and new validation targets.
+Self-contained execution guide.  Work through milestones in order.  Every task
+has an exact file path, a concrete change, and a verification step.  Do not
+skip tasks within a milestone.
 
-**Legend**: (N) = new item, (I) = inherited incomplete from TODO.md, (A) = absorb from
-prototype1, (V) = validation/dataset addition.
-
----
-
-## Phase 0: Gaps in Existing Modular Framework
-
-### 0.1 Optimizer State Interpolation (I)
-`mngs/modules/topology_managers.py:173` — `ContinuousDensityManager.adapt_topology()` only
-prunes today.  It must be extended to implement the full differentiable split-gate (gamma)
-mechanism described in TODO.md Section 4 point 3: when a unit's gamma triggers a split,
-Adam `exp_avg` / `exp_avg_sq` should be smoothly interpolated between parent and child
-rather than zeroed.  This is the single most impactful missing piece for training stability.
-
-### 0.2 MemoryManagement — Dead Enum (I)
-`mngs/core/config.py:25-29` defines `MemoryManagement` with three strategies, but the
-value is **stored and never read** anywhere:
-- No code branches on `config.memory_management`.
-- `STRICT_CAPACITY` profile exists (`profiles.py:69`) but nothing enforces a capacity cap.
-- `DYNAMIC_GROWTH` has no implementation in the modular framework.
-- `PRE_ALLOCATED_MASKED` is the de facto (and only) working mode.
-
-**Fix**: wire `MemoryManagement` into `MNGS.__init__` so it controls tensor allocation,
-masking, and pruning/spawning logic.  The `DYNAMIC_GROWTH` strategy can be modeled on
-prototype1's `_adapt_density_dynamic` (see 0.3).
-
-### 0.3 Absorb prototype1 Ideas (A)
-
-| Idea | prototype1 Location | Action |
-|------|---------------------|--------|
-| Hook-based grad EMA (`register_hook`) | `model.py:38` | Replace manual `update_grad_ema()` call pattern — hook fires automatically on backward |
-| Dynamic tensor resizing (real `DYNAMIC_GROWTH`) | `model.py:203-305` (`_adapt_density_dynamic`) | Port as a new `DynamicGrowthManager` that calls `_resize_params()` and patches Adam state |
-| Optimizer state patching for changed shapes | `model.py:281-303` | Extract into a shared utility `pytorch_utils.py` |
-| `FixedLeanNGS` as simpler baseline | `baselines.py:19` | Add a `FixedCapacityMNGS(n_units)` convenience wrapper for ablation |
-| Catastrophic-forgetting-over-time plot | `experiment.py:54-73` | Port to `experiments/plotting.py` |
-
-### 0.4 LSH Router Stub (I)
-`mngs/modules/routers.py:177-223` — `LSHRouter.forward()` returns random pseudo-distances
-and never actually performs LSH.  Either implement real bucket-based LSH (hash tables or
-multi-probe), or replace with a note that this is deferred.
-
-### 0.5 FactorizedRouter + ParameterStore Mismatch (I)
-`mngs/model.py:174-200` — `_forward_factorized` converts subspace-local indices to global
-indices via `indices + s * units_per_space`.  This assumes a contiguous, static allocation
-per subspace, which breaks under pre-allocated masked memory when units are at arbitrary
-positions.  **Fix**: either (a) give `FactorizedRouter` its own `parameter_store` per
-subspace, or (b) teach `MNGS` to use per-subspace parameter stores that the router owns.
-
-### 0.6 ContinuousDensityManager — Gate Initialization Issue
-`topology_managers.py:193-197` — `initialize_gates()` creates `nn.Parameter` tensors as
-plain attributes, not registered sub-modules.  These won't be picked up by optimizer
-`.parameters()` calls.  Move to `nn.Parameter` registration or add to `MNGS` as a
-top-level buffer.
-
-### 0.7 Silent-Drop Bug: `epochs_per_task` vs `epochs` Mismatch (N·BUG)
-`experiments/runner.py:51` — `train_kwargs = asdict(config.train)` produces
-`epochs_per_task=N`, but every trainer function has parameter `epochs=5`.  The trainer
-receives `epochs_per_task` in `**kwargs` where it's silently discarded, so **every
-experiment trains for exactly 5 epochs regardless of `TrainConfig.epochs_per_task`**.
-
-Same bug in `ablation.py:96` and `quick_runner.py:32-103`.  **Fix**: in `runner.py` and
-`ablation.py`, rename `epochs_per_task -> epochs` before calling the trainer, or use a
-unified adapter.
-
-### 0.8 Double-Softmax in `entropy_loss` — Monolithic Path (N·BUG)
-`mngs/model.py:216-219` — `MonolithicRouter.forward()` already returns softmax-normalized
-weights (`F.softmax(topk_vals, dim=-1)`).  Then `entropy_loss` applies
-`p = F.softmax(weights, dim=-1)` a second time.  The factorized branch correctly uses
-`p = weights` (line 212) without a second softmax.
-
-**Fix**: align the monolithic branch with the factorized branch: remove the second
-softmax.
-
-### 0.9 FWT Metric Uses Wrong Random Baseline (N·BUG)
-`experiments/metrics.py:64` — `random_baseline` defaults to `0.1` (10-class random
-guess).  For Split-MNIST (2 classes) the correct baseline is `0.5`; for
-Split-CIFAR100-20 (5 classes) it is `0.2`.  Forward Transfer is computed against a wrong
-value for most experiments.
-
-**Fix**: accept `random_baseline` as a parameter to `compute_metrics` and have callers
-compute `1.0 / output_dim`.
-
-### 0.10 `ContinuousDensityManager` Params Outside `nn.Module` (N·BUG)
-`mngs/modules/topology_managers.py:8-23` — `BaseTopologyManager(ABC)` is not an
-`nn.Module`.  When `ContinuousDensityManager.initialize_gates()` (line 191) creates
-`self.split_gate = nn.Parameter(...)`, the parameter is **not registered** with any
-module.  It will not appear in `model.parameters()`, will not be moved by `.to()`, and
-will not receive gradients.
-
-**Fix**: either make `BaseTopologyManager` inherit from `nn.Module`, or store gates in
-the `MNGS` module itself.
-
-### 0.11 `hpo.py` Sets `config.train.top_k` — Not a Dataclass Field (N·BUG)
-`experiments/hpo.py:34` — `config.train.top_k = trial.suggest_categorical(...)` sets an
-attribute `top_k` on the `TrainConfig` instance, but `TrainConfig` does not have a `top_k`
-field.  `asdict(config.train)` only includes actual dataclass fields, so **`top_k` is
-never serialized or passed to the model**.  The HPO is tuning a dead parameter.
-
-**Fix**: move `top_k` to `ModelConfig` where it belongs, or add it to `TrainConfig`.
-
-### 0.12 `__import__` Hack in `quick_runner.py` (N·BUG)
-`experiments/quick_runner.py:259,270,283` — `__import__('experiments.config').config.TrainConfig`
-behaves differently for namespace packages (no `__init__.py` in `experiments/`).  Python's
-`__import__` returns the **top-level** package for dotted names, so
-`__import__('experiments.config')` returns `experiments`, and `.config.TrainConfig`
-accesses it through the namespace.  This is fragile and implementation-dependent.
-
-**Fix**: use `from experiments.config import ...` at the top of the file.
-
-### 0.13 `tau` Changed from Learnable to Fixed (N·Design)
-`lean_ngs.py:18` — `tau` was `nn.Parameter(torch.tensor(1.0))` (learnable).  In the
-modular code, `mngs/modules/routers.py:39` stores `self.tau = tau` as a plain float.  The
-routing temperature can no longer be optimized.
-
-**Fix**: restore `nn.Parameter` or keep as config-only (document the change).
-
-### 0.14 `diversity_weight` / `diversity_loss` Never Called (N·Design)
-`mngs/core/config.py:61` defines `diversity_weight: float = 0.01`.  `mngs/model.py:246-257`
-defines `diversity_loss()`.  `experiments/mngs_trainer.py:24` accepts `diversity_weight`
-as a param.  But the trainer **never calls `model.diversity_loss()`** in the loss
-computation (line 72).  The diversity loss is dead code.
-
-**Fix**: add `diversity_weight * model.diversity_loss()` to the total loss in
-`train_mngs`.
-
-### 0.15 `config.output_dim` Never Read by Model (N·Design)
-`mngs/core/config.py:37` defines `output_dim: int = 64`.  `MNGS.__init__(d_out)` uses
-`d_out` directly; `config.output_dim` is never accessed.
-
-**Fix**: either remove from config or use it during construction.
-
-### 0.16 `ModelConfig` Dead Fields (N·Design)
-`experiments/config.py:16-19` — `gamma_init`, `tau_init`, `mu_init_std`, `w_init_std` are
-never extracted by `create_lean_ngs` (which only reads `d_latent, k_init, max_k, top_k,
-lora_rank`).  These are silently dropped in all experiments.
-
-**Fix**: remove unused fields or wire them into `LeanNGS.__init__`.
-
-### 0.17 Enum String Comparisons vs Member Identity (N·Design)
-`mngs/model.py:54,61,70,84,91,106,112` — uses `routing.name == "MONOLITHIC_MAHALANOBIS"`
-instead of `routing == RoutingStrategy.MONOLITHIC_MAHALANOBIS`.  Works but fragile if
-enum names are ever renamed.
-
-**Fix**: convert to enum member comparison throughout `_build_*` methods.
-
-### 0.18 Integer Division Losing Capacity (N·Design)
-`mngs/model.py:62` — `units_per_space = k_init // num_subspaces`.  If `k_init=10,
-num_subspaces=4`, total capacity = 8 instead of 10 (20% loss).  Same for
-`d_latent // num_subspaces` in `routers.py:124`, which can also produce zero-dim
-projectors when `num_subspaces > d_latent` (latent crash).
-
-**Fix**: use floor division but warn if remainder > 0; guard against zero dimensions.
-
-### 0.19 `log_alpha` Halving Is Mathematically Wrong (N·Design)
-`lean_ngs.py:133-134,145` — `self.log_alpha.data[...] += torch.log(torch.tensor(0.5))`
-intends to halve the opacity, but `sigmoid(x + log(0.5)) ≠ 0.5 * sigmoid(x)`.  The
-halving intent is not achieved in probability space.
-
-Same pattern in `topology_managers.py:130-132`.
-
-**Fix**: halve in probability space: `p = sigmoid(log_alpha); new_p = p * 0.5; new_log_alpha =
-logit(new_p)`.
-
-### 0.20 Missing Seed Setting (N·Design)
-- `train_split_mnist.py` — no `torch.manual_seed` or `random.seed` call at all (9.1).
-- `experiments/hpo.py:38-40` — all trials use the same `seed=42`, making HPO comparisons
-  less statistically sound (9.2).
-- `tests/` — no seed setting, non-deterministic but functionally correct (11.1).
-
-### 0.21 Missing Tests (I) — Updated
-| Test | File |
-|------|------|
-| `ContinuousDensityManager` with actual gradient flow through gamma | `tests/test_topology_and_training.py` |
-| End-to-end multi-task training loop (5-task Split-MNIST) with metric verification | new file `tests/test_end_to_end.py` |
-| `MemoryManagement` wiring (all 3 strategies) | `tests/test_memory_management.py` |
-| Factorized router + hypernetwork store gradient flow | `tests/test_cfg_net_profile.py` |
-| Profile comparison: same input yields same-dim output for all 4 profiles | augment `test_topology_and_training.py::test_all_profiles_smoke` |
+**Legend**: `[BUG]` = produces silently wrong results today.  `[DESIGN]` =
+incomplete or fragile but not producing wrong results.
 
 ---
 
-## Phase 1: Validation Targets
+## M1: FIX — Correctness Sprint
 
-### 1.1 Existing Datasets Needing Full Runs (V)
-These are already configured in `experiments/config.py` but have **no results** (only
-`Split-MNIST` × 1 seed exists in `results/test/`):
+*Goal: all bugs that silently skew experimental results are eliminated.*
 
-| Dataset | Config Key | Tasks | Notes |
-|---------|-----------|-------|-------|
-| Split-FashionMNIST | `split_fashion` | 5 | Same structure as MNIST |
-| Split-CIFAR10 | `split_cifar10` | 5 | Needs backbone or larger latent |
-| Split-CIFAR100 | `split_cifar100` | 10 | Same |
-| Permuted-MNIST | `permuted_mnist` | 10 | 10 permutations, domain-incremental |
-| Rotated-MNIST | `rotated_mnist` | 10 | Angle-based domain shift |
-| Blurry-MNIST | `blurry_mnist` | 5 | Gaussian blur domain shift |
-| Noisy-MNIST | `noisy_mnist` | 5 | Noise domain shift |
-| SVHN | `svhn` | 5 | Street-view house numbers |
-| Digits (MNIST subset) | `digits` | 5 | 2-class splits from MNIST |
-| Split-CIFAR100-20 | `split_cifar100_20` | 20 | 5-class splits, 20 tasks |
+### M1.1 Training duration bug
+- **Area**: `experiments/runner.py:51`, `experiments/ablation.py:96`,
+  `experiments/quick_runner.py:144`
+- **Problem**: `asdict(config.train)` produces `epochs_per_task=N`, but all
+  trainer functions accept `epochs` (default 5).  `epochs_per_task` lands in
+  `**kwargs` and is **silently dropped**.  Every experiment trains for 5 epochs
+  regardless of config.
+- **Fix**: Create a shared adapter in `experiments/config.py`:
+  ```python
+  def as_train_kwargs(cfg: TrainConfig) -> dict:
+      kw = asdict(cfg)
+      kw['epochs'] = kw.pop('epochs_per_task', 5)
+      return kw
+  ```
+  Replace every `asdict(config.train)` with `as_train_kwargs(config.train)` in
+  `runner.py`, `ablation.py`, `quick_runner.py`, and `comprehensive_eval.py`.
+  Also fix the `train_kwargs = asdict(config.train)` in `mngs_trainer.py:61`
+  and `lean_ngs_trainer.py:51` if they shadow the runner's dict.
+- **Also fix** same pattern in `train_backbone_ngs` (`quick_runner.py:137`): its
+  `train_kwargs` dict is built manually, so just rename the key from
+  `'epochs'` to match the config field name, or use the same adapter.
+- **Verification**: After fix, add a test: configure `TrainConfig(epochs_per_task=1)`,
+  run training, assert that the trainer's `range(epochs)` loop runs exactly 1
+  iteration per epoch (not 5).  Or simply: `pytest` passes on new
+  `test_end_to_end.py` (#M4.1).
 
-Each should be run with seeds [42, 123, 456] across all 4 MNGS profiles + 5 baselines
-(MLP, ER, EWC, SI, LwF) to fill the comparison matrix.
+### M1.2 Double-softmax in entropy_loss
+- **Area**: `mngs/model.py:216-219`
+- **Problem**: `MonolithicRouter.forward()` already returns
+  `F.softmax(topk_vals, dim=-1)` as its second output.  Then `entropy_loss`
+  (line 218) applies `F.softmax(weights, dim=-1)` again, double-normalizing.
+  The factorized branch (line 212) correctly uses raw weights.
+- **Fix**: Change the monolithic branch to match the factorized branch:
+  ```python
+  # p = F.softmax(weights, dim=-1)  ← DELETE
+  p = weights                        ← ADD, same as factorized path
+  ```
+- **Verification**: `pytest tests/test_topology_and_training.py::test_entropy_loss`
+  passes.  Also add an explicit check: entropy of uniform weights should be
+  `log(K)`.  With double-softmax it is not.
 
-### 1.2 New Datasets / Tasks to Add (V)
+### M1.3 FWT random baseline is always 0.1
+- **Area**: `experiments/metrics.py:64,91`
+- **Problem**: `compute_metrics()` hard-codes `random_baseline=0.1` (correct only
+  for 10-class tasks).  Split-MNIST has 2 classes (random=0.5),
+  Split-CIFAR100-20 has 5 classes (random=0.2).  FWT is computed against a wrong
+  value for most experiments.
+- **Fix**:
+  1. Remove the default argument: `def compute_metrics(accuracy_matrix, random_baseline):`
+  2. In `CLMetrics`, store `random_baseline` (no default).
+  3. Update every call site to pass `1.0 / output_dim`:
+     - `experiments/runner.py:153` — has access to `config.output_dim`
+     - `experiments/ablation.py:134` — has access to the config
+     - `experiments/quick_runner.py:216` — needs `output_dim` passed through
+     - `experiments/online_eval.py` — uses `compute_metrics` too
+     - `experiments/plotting.py:241` — calls `aggregate_results` not `compute_metrics`
+       directly (check).
+  4. Update `CLMetrics.to_dict()` and `CLMetrics.save()` to include the corrected
+     values.
+- **Verification**: `pytest` passes.  Manual: `compute_metrics(acc_matrix_2class, 0.5)`
+  returns different FWT from `compute_metrics(acc_matrix_2class, 0.1)`.
 
-#### A. Full MNIST (Non-Split)
-For capacity scaling analysis: does LeanNGS/MNGS still show zero-forgetting properties
-when all 10 digits are learned simultaneously?  Useful as a "saturation test" showing
-whether dynamic capacity adds value over a fixed-capacity model.
+### M1.4 HPO tunes a dead `top_k` field
+- **Area**: `experiments/hpo.py:34`
+- **Problem**: `config.train.top_k = trial.suggest_categorical(...)` sets an
+  attribute on `TrainConfig`, but `TrainConfig` has no `top_k` dataclass field.
+  `asdict(config.train)` does not include it.  The hyperparameter is optimized
+  but never passed to the model.
+- **Fix**: `top_k` already exists in `ModelConfig` (line 14).  Change HPO to
+  write to `config.model.top_k` instead of `config.train.top_k`.
+- **Verification**: After fix, run `hpo.py` with 1 trial and print the config.
+  `config.model.top_k` must be the suggested value.
 
-**How**: Add `full_mnist` to `experiments/config.py` with `n_tasks=1`,
-`classes_per_task=10`, `output_dim=10`.
+### M1.5 `nn.Parameter` registered outside `nn.Module`
+- **Area**: `mngs/modules/topology_managers.py:191-198`
+- **Problem**: `ContinuousDensityManager` inherits from `BaseTopologyManager(ABC)`,
+  not `nn.Module`.  `nn.Parameter(...)` creates an unregistered tensor that
+  will not appear in `model.parameters()`, will not be moved by `.to()`, and
+  will not receive gradients.
+- **Fix**: Move the split gate into the `MNGS` model itself.
+  ```python
+  # In MNGS.__init__ (mngs/model.py):
+  # After line 43, add:
+  self.split_gate = nn.Parameter(torch.full((config.max_k,), 0.0))
+  self.activation_density = torch.zeros(config.max_k)
+  self.error_density = torch.zeros(config.max_k)
+  ```
+  Then in `ContinuousDensityManager`, accept the gate from `model` instead of
+  creating it.  Remove `initialize_gates()` entirely.
+- **Verification**: After fix, `model.parameters()` includes the gate.
+  `model.to(device)` moves it.  `out.sum().backward()` shows non-None
+  `model.split_gate.grad`.
 
-#### B. TinyShakespeare (Language Domain)
-Introduces a **different modality** (character-level LM) to test whether the Gaussian
-routing mechanism generalizes beyond vision.  This is the strongest "out-of-domain"
-validation.
+### M1.6 `__import__` hack in quick_runner
+- **Area**: `experiments/quick_runner.py:259,270,283`
+- **Problem**: `__import__('experiments.config').config.TrainConfig(...)` is
+  fragile with namespace packages (no `__init__.py` in `experiments/`).
+- **Fix**: Add `from experiments.config import TrainConfig, ModelConfig` at the
+  top of the file and replace all three `__import__` calls with direct
+  references.
+- **Verification**: `python -m experiments.quick_runner --help` runs without
+  import errors.
 
-**How**: New file `experiments/datasets_tinyshakespeare.py` — download the raw text,
-create fixed-length chunk sequences, split into "tasks" by chapter or by character n-gram
-distribution shift.  Requires `output_dim` = vocab size (~65 chars).
-
-**Models**: Only need `lean_ngs` / `mngs_baseline` vs `mlp` / `lwf` — cross-entropy on
-next-char prediction.
-
-#### C. CartPole / RL Validation (Lower Priority)
-`experiments/backbones.py` already supports image backbones.  For RL, we'd need to wrap
-the NGS head as a policy network for OpenAI Gym.  This is deferred until the supervised
-CL benchmarks are complete — noted here for awareness only.
-
-#### D. Synthetic Blob / MoG Dataset
-A controlled 2D synthetic dataset where ground-truth clusters are known.  Useful for
-visualizing Gaussian unit placement and split events.  Not a "popular" dataset but high
-diagnostic value.
-
-**How**: `datasets.py` — `make_blobs`-style Gaussian mixture, assign each cluster as a
-"task" in class-incremental format.
-
----
-
-## Phase 2: Systematic Ablation & Analysis
-
-### 2.1 Run Phase-1 of TODO.md Strategy (I)
-TODO.md §3 prescribes a structured 3-phase ablation.  Only Phase 1 (baseline anchor) has
-been partially run.  Execute:
-
-| Phase | Configs | What it tells us |
-|-------|---------|------------------|
-| 1 | `Baseline_LeanNGS` | Lock accuracy/forgetting/memory/flops baselines |
-| 2a | Swap routing → `FACTORIZED_SUBSPACE` | Routing FLOPs change without accuracy drop? |
-| 2b | Swap storage → `HYPERNETWORK_GENERATED` | Memory savings without accuracy loss? |
-| 2c | Swap topology → `CONTINUOUS_DENSITY` | Smoother loss curves? (requires 0.1 fix) |
-| 3 | Winners from 2a+2b+2c combined | Synergistic gains? |
-
-### 2.2 Per-Dataset Hyperparameter Tuning
-The `BEST_CONFIGS` dict in `comprehensive_eval.py:18-79` has hard-coded values from
-preliminary runs.  For CIFAR-100, Permuted-MNIST, and SVHN, we need dedicated HPO runs
-(`experiments/hpo.py`).
-
-### 2.3 Parameter-Matched Comparison
-The current `max_k=448` was chosen to match MLP's ~534K parameters on MNIST.  For each
-new dataset, compute the parameter-matched `max_k` for a fair comparison.  Add a helper
-in `experiments/config.py`.
-
----
-
-## Phase 3: Infrastructure
-
-### 3.1 CI / Reproducibility
-- Add `pytest` to CI (GitHub Actions `.github/workflows/test.yml`).
-- Pin dependency versions in `pyproject.toml` (currently `torch>=2.0`, `numpy`).
-- Add `seed == 42` reproducible defaults to all experiment configs.
-- After fixing 0.6, ensure `torch.save` / `torch.load` round-trips work for MNGS models.
-
-### 3.2 Documentation
-- Fill `README.md` with: architecture diagram, running instructions, reproduction
-  commands for each profile, expected results table.
-- Add docstrings to all exported functions (already good, but some like `mngs_trainer.py`
-  functions are missing param docs).
-
-### 3.3 Extensibility Hooks
-TODO.md §4 describes:
-- ✅ Factory pattern (`build_mngs`)
-- ✅ Unified forward signature (indices + weights)
-- ❌ Custom optimizer wrapper for `ContinuousDensityManager` — see 0.1
-
-Add `build_mngs` to `mngs/__init__.py` docs.
-
----
-
-## Execution Priority
-
-| Priority | Item | Effort | Impact |
-|----------|------|--------|--------|
-| P0 | 0.1 ContinuousDensityManager differentiable split gate | 3d | Enables CFG-Net topology hypothesis |
-| P0 | 0.2 Wire MemoryManagement into model | 2d | Unblocks STRICT_CAPACITY + DYNAMIC_GROWTH |
-| P0 | **0.7 epochs_per_task silent-drop bug** | **0.5d** | **All experiments train for wrong duration** |
-| P0 | **0.8 Double-softmax in entropy_loss** | **0.25d** | **Monolithic routing entropy regularization wrong** |
-| P0 | **0.9 FWT wrong random baseline** | **0.25d** | **All FWT metrics invalid** |
-| P0 | **0.10 nn.Parameter outside nn.Module** | **0.5d** | **ContinuousDensityManager has no learnable params** |
-| P0 | **0.11 HPO tunes dead top_k param** | **0.25d** | **HPO silently ineffective** |
-| P0 | 1.1 Run all existing datasets × models × 3 seeds | 5d | Fills the evidence matrix |
-| P1 | 0.3 Absorb prototype1 ideas | 1d | Cleaner code, dynamic growth working |
-| P1 | 0.5 FactorizedRouter ↔ ParameterStore integration | 2d | Factorized + pre-allocated compat |
-| P1 | 0.12 __import__ hack in quick_runner.py | 0.25d | Import reliability |
-| P1 | 0.14 diversity_loss never called | 0.25d | Dead feature reactivation |
-| P1 | 0.17 Enum strings vs member identity | 0.5d | Robustness |
-| P1 | 0.18 Integer division losing capacity | 0.5d | Correctness at edge configs |
-| P1 | 0.19 log_alpha halving math error | 0.5d | Topology math correctness |
-| P1 | 1.2 New datasets (Full MNIST, TinyShakespeare) | 2d | Modality diversity |
-| P1 | 2.1 Structured ablation (3 phases) | 3d | Core research deliverable |
-| P2 | 0.13 tau learnable → fixed regression | 0.5d | Optimization fidelity |
-| P2 | 0.15 config.output_dim never read | 0.25d | Config hygiene |
-| P2 | 0.16 ModelConfig dead fields | 0.25d | Config hygiene |
-| P2 | 0.20 Missing seed setting | 0.5d | Reproducibility |
-| P2 | 0.21 Missing tests | 2d | Regression safety |
-| P2 | 2.2 Per-dataset HPO | 2d | Best-practice tuning |
-| P2 | 3.1 CI / seed pinning | 0.5d | Reproducibility |
-| P3 | 0.4 LSH Router full impl | 3d | Research-scale routing |
-| P3 | 0.6 Gate init fix (subsumed by 0.10) | — | Merged into 0.10 |
-| P3 | 3.2 README / docs | 1d | Usability |
+### M1.7 Missing random seeds
+- **Area**: `train_split_mnist.py`, `tests/*.py`
+- **Problem**: `train_split_mnist.py` sets no seeds at all.  Tests have no seed
+  setting.
+- **Fix**:
+  1. `train_split_mnist.py`: add `torch.manual_seed(42); np.random.seed(42); random.seed(42)`
+     at the top of `main()`.
+  2. Each test file: add a `def setup_method(self):` or module-level
+     `torch.manual_seed(42)` in the test fixtures.  Or add a conftest.py.
+  3. Create `tests/conftest.py`:
+     ```python
+     import pytest, torch, numpy as np, random
+     @pytest.fixture(autouse=True)
+     def seed_all():
+         torch.manual_seed(42)
+         np.random.seed(42)
+         random.seed(42)
+     ```
+- **Verification**: Running the same test twice produces identical outputs
+  (pick a test that samples random initialization).
 
 ---
 
-## Key
+## M2: BUILD — Complete the Framework
 
-| Tag | Meaning |
-|-----|---------|
-| (I) | Inherited incomplete from original TODO.md |
-| (A) | Absorb from prototype1/ |
-| (V) | Validation / dataset addition |
-| (N·BUG) | New bug found during audit |
-| (N·Design) | New design flaw found during audit |
-| P0-P3 | Execution priority |
+*Goal: all modular abstractions are fully wired, no stubs, no dead code.*
 
-**Total P0 items**: 8 — 6 newly discovered bugs + 2 architecture gaps + fill results matrix.
-**Total P1 items**: 9 — absorb prototype1, fix import/design issues, new datasets, ablation.
-**Total P2+P3 items**: 10 — polish, docs, edge features, tests.
-**Grand total**: 27 tracked items (was 14 before audit).
+### M2.1 Wire `config.memory_management` into the model
+- **Area**: `mngs/model.py`, `mngs/core/config.py`
+- **Depends on**: M1.5 (param registration)
+- **Problem**: `MemoryManagement` enum is defined, stored in config, set by
+  every profile, but never read.  Three strategies exist only as labels:
+  - `DYNAMIC_GROWTH`: no implementation in modular code.
+  - `PRE_ALLOCATED_MASKED`: currently the de facto default (hard-coded).
+  - `STRICT_CAPACITY`: profile exists, but nothing enforces a capacity cap.
+- **Fix**:
+  1. In `MNGS.__init__`, read `config.memory_management` and branch:
+     - `PRE_ALLOCATED_MASKED`: current behavior (pre-allocate `max_k` tensors, use `active_mask`).
+     - `DYNAMIC_GROWTH`: start with `k_init` units, grow via `torch.cat` when
+       spawning/splitting — implement using prototype1's `_adapt_density_dynamic`
+       (see `prototype1/lean_ngs/model.py:203-305`).
+     - `STRICT_CAPACITY`: same as PRE_ALLOCATED but prune to stay under `max_k`
+       before spawning — add a budget check in `adapt_density()`.
+  2. Remove the early-return heuristic at `topology_managers.py:68` that gates
+     on `hasattr(model.router, 'active_mask')` — let the strategy decide.
+  3. `FactorizedRouter` also needs a `DYNAMIC_GROWTH` path if used in that
+     mode (per-subspace tensor resizing).
+- **Verification**: Each strategy does what the name says:
+  - `PRE_ALLOCATED_MASKED`: `len(model.router.mu) == max_k` always.
+  - `DYNAMIC_GROWTH`: `len(model.router.mu)` grows by splitting.
+  - `STRICT_CAPACITY`: `model.K <= max_k` after every `adapt_density` call.
+
+### M2.2 ContinuousDensityManager: implement differentiable split gate
+- **Area**: `mngs/modules/topology_managers.py:173-222`
+- **Depends on**: M1.5 (gate registration), M2.1 (MemoryManagement wiring)
+- **Problem**: `adapt_topology()` only prunes (lines 210-221).  It always
+  returns `(num_pruned, 0, 0)`.  `split_gate`, `activation_density`, and
+  `error_density` are never updated.
+- **Fix—three sub-steps**:  
+  **M2.2a — Density tracking**: Update `activation_density` and `error_density`
+  EMAs after every forward pass.  This requires integration in `MNGS.forward()`:
+  ```python
+  # After the weighted combination (model.py:169), update densities:
+  if isinstance(self.topology_manager, ContinuousDensityManager):
+      # Increase activation density for selected units
+      # Increase error density proportional to loss contribution
+      activation_density = ...
+      error_density = ...
+      self.topology_manager.activation_density = (
+          self.topology_manager.density_decay * self.topology_manager.activation_density
+          + (1 - self.topology_manager.density_decay) * activation_density
+      )
+      # same for error_density
+  ```
+  **M2.2b — Split gate loss**: Add a regularization term that pushes gamma to
+  {0, 1} based on local error density.  Add to the model's forward pass:
+  ```python
+  gamma_reg = gamma * (1 - gamma) * error_density  # push to extremes where error is high
+  ```
+  **M2.2c — Split execution**: When gamma > 0.5 and error_density > threshold,
+  execute a split by creating a child unit with perturbed code / mu, reset
+  gamma to 0 for both parent and child.  Interpolate Adam states.
+- **Verification**: `model.adapt_density()` returns `(0, N>0, 0)` after enough
+  forward+backward steps on data with high local error.  `model.K` increases.
+
+### M2.3 FactorizedRouter + ParameterStore integration
+- **Area**: `mngs/model.py:174-200`
+- **Depends on**: M2.1
+- **Problem**: `_forward_factorized` converts subspace-local indices to global
+  indices via `indices + s * units_per_space`.  This assumes contiguous,
+  static allocation per subspace.  With pre-allocated masked memory or dynamic
+  growth, active units can be at arbitrary positions, making this conversion
+  invalid.
+- **Fix**: Two options — pick one:
+  - **(a) Per-subspace parameter store**: Give `FactorizedRouter` its own
+    `ParameterStore` per subspace (a `ModuleList` of `DirectAdapterStore` or
+    `HypernetworkStore`).  `FactorizedRouter.forward()` returns indices that
+    are local per subspace; `_forward_factorized` uses `router.param_stores[s]`.
+  - **(b) Flat index conversion**: Maintain a mapping tensor `subspace_to_flat`
+    inside `FactorizedRouter` that maps `(s, local_idx) -> global_flat_idx`.
+    Update this mapping after every topology change.  Simpler but requires
+    `FactorizedRouter` to participate in memory management.
+- **Verification**: Same forward/backward results whether using `MONOLITHIC`
+  vs `FACTORIZED` with `num_subspaces=1` (should produce identical global
+  behavior).  Cross-reference with `_forward_standard`.
+
+### M2.4 Wire `diversity_loss` into training
+- **Area**: `experiments/mngs_trainer.py:72`
+- **Problem**: `diversity_weight` is accepted as a param but `diversity_loss()`
+  is never called in the loss sum.
+- **Fix**: Add diversity loss to the total:
+  ```python
+  total_loss = ce_loss + kd_weight * kd_loss + entropy_weight * entropy_loss
+  if diversity_weight > 0:
+      total_loss += diversity_weight * model.diversity_loss()
+  ```
+- **Verification**: When `diversity_weight > 0`, loss value differs from
+  when it is 0.  Test with `model.diversity_loss().backward()` — gradients
+  flow into `model.router.mu`.
+
+### M2.5 Absorb prototype1 hook-based grad EMA
+- **Area**: `mngs/model.py:221-232` (current `update_grad_ema`), `mngs/modules/routers.py`
+- **Problem**: Current code calls `model.update_grad_ema()` manually in the
+  training loop (`mngs_trainer.py:76`).  If the caller forgets, the EMA never
+  updates and topology stalls.
+- **Fix**: Replace manual call with `torch.Tensor.register_hook` inside
+  `MonolithicRouter.__init__()`:
+  ```python
+  self.mu.register_hook(self._update_mu_grad_ema)
+  ```
+  Move the EMA tracking into the router (it knows its own `mu`).  Keep
+  `update_grad_ema()` as a public method for backward compat but deprecate it.
+- **Verification**: Remove `model.update_grad_ema()` from `mngs_trainer.py:76`.
+  Run training — `model.grad_mu_ema` still updates (non-zero after backward).
+
+### M2.6 Fix enum string comparisons
+- **Area**: `mngs/model.py:54,61,70,84,91,106,112`
+- **Problem**: Uses `routing.name == "MONOLITHIC_MAHALANOBIS"` instead of
+  `routing == RoutingStrategy.MONOLITHIC_MAHALANOBIS`.  Fragile under rename.
+- **Fix**: Replace all `.name == "STR"` with direct enum member comparison
+  `== EnumType.MEMBER`.
+- **Verification**: All `_build_*` branches still execute correctly.  No
+  runtime error.  Test: `model = build_mngs(..., config=CFG_Net_Full())`
+  builds a `FactorizedRouter` (not `Monolithic`).
+
+### M2.7 Fix integer division capacity loss
+- **Area**: `mngs/model.py:62`, `mngs/modules/routers.py:124`
+- **Problem**: `k_init // num_subspaces` can silently lose capacity (e.g.,
+  `10 // 4 = 2`, total = 8 instead of 10).  `d_latent // num_subspaces` can
+  give zero-dim projectors when `num_subspaces > d_latent`.
+- **Fix**:
+  - For units: `units_per_space = k_init // num_subspaces` → `ceil(k_init / num_subspaces)`
+    to not lose capacity.  Last subspace may have fewer units.
+  - For subspaces: `d_sub = d_latent // num_subspaces` with a minimum of 1.
+    The last `d_latent % num_subspaces` dimensions are dropped (acceptable,
+    common in subspace methods).
+  - Add a warning if `d_latent < num_subspaces` or `k_init < num_subspaces`.
+- **Verification**: `FactorizedRouter(d_latent=32, num_subspaces=3, units_per_space=10)`
+  has total units >= `k_init`.  `FactorizedRouter(d_latent=3, num_subspaces=10)`
+  raises a warning but does not crash.
+
+### M2.8 Fix `log_alpha` halving in probability space
+- **Area**: `mngs/modules/topology_managers.py:130-132`, `lean_ngs.py:133,145`
+- **Problem**: `log_alpha += log(0.5)` intends to halve alpha, but
+  `sigmoid(x + log(0.5)) ≠ 0.5 * sigmoid(x)`.
+- **Fix**: Convert to probability space, halve, convert back:
+  ```python
+  alpha = torch.sigmoid(log_alpha_split)
+  new_alpha = alpha * 0.5
+  new_log_alpha = torch.logit(new_alpha)
+  ```
+  Apply to both parent and child.
+- **Verification**: Before fix, `alpha` halves by an unpredictable fraction.
+  After fix, `alpha` drops by exactly 0.5x.  Add a unit test that checks
+  `sigmoid(output_log_alpha) == 0.5 * sigmoid(input_log_alpha)`.
+
+### M2.9 Clean up dead config fields
+- **Area**: `mngs/core/config.py:37,46,61,62`, `experiments/config.py:16-19`
+- **Problem**: 6 config fields are defined but never read:
+  - `MNGSConfig.output_dim` (not used by `MNGS.__init__`)
+  - `MNGSConfig.memory_management` (will be fixed by M2.1)
+  - `MNGSConfig.diversity_weight` (will be fixed by M2.4)
+  - `MNGSConfig.entropy_weight` (only read by trainer, not model)
+  - `ModelConfig.gamma_init, tau_init, mu_init_std, w_init_std`
+- **Fix**: Three categories:
+  - **Wired now**: `diversity_weight`, `memory_management` — leave in config.
+  - **Never used**: `output_dim` — remove from `MNGSConfig` (model receives
+    `d_out` at init).  `gamma_init, tau_init, mu_init_std, w_init_std` —
+    remove from `ModelConfig`.
+  - **Trainer-only**: `entropy_weight` — leave in config, document as
+    "consumed by `train_mngs`, not by the model".
+- **Verification**: `asdict(MNGSConfig())` has exactly the fields that code
+  actually reads.  No "attribute does not exist" error anywhere.
+
+### M2.10 Restore `tau` as learnable parameter
+- **Area**: `mngs/modules/routers.py:39`, `lean_ngs.py:18`
+- **Problem**: Was `nn.Parameter` in original, now a plain float.  Temperature
+  annealing is no longer possible.
+- **Fix**: Change `self.tau = nn.Parameter(torch.tensor(tau))` in
+  `MonolithicRouter` and `FactorizedRouter`.  Update `MNGSConfig.tau` type
+  documentation to reflect that this initializes a learnable param.
+- **Verification**: After training, `model.router.tau` value differs from its
+  initial value (gradients flowed into it).
+
+---
+
+## M3: RUN — Execute the Validation Matrix
+
+*Goal: every dataset × model × seed produces a result file.*
+
+### M3.1 Test infrastructure
+- **Depends on**: M1 complete (all bugs fixed), ideally M2 complete
+- **Action**: Create `tests/test_end_to_end.py` with:
+  1. Smoke test: run 1 epoch of Split-MNIST for each profile, assert no crash.
+  2. Baseline repro: run `Baseline_LeanNGS` on Split-MNIST with accepted
+     hyperparams (from `comprehensive_eval.py:BEST_CONFIGS['split_mnist']`),
+     assert `avg_final_accuracy > 0.70` and `avg_forgetting < 0.10`.
+  3. Exact-shape test for all 4 profiles on 3 different input dims
+     (784, 3072, 64).
+  4. Factorized vs monolithic equivalence check with `num_subspaces=1`.
+  5. MemoryManagement smoke test: all 3 strategies do not crash.
+- **Verification**: `python -m pytest tests/ -v` shows all green.
+
+### M3.2 Run baseline LeanNGS on all configured datasets
+- **Depends on**: M1 complete
+- **Action**: For each config in `experiments/config.py:EXPERIMENTS`, run
+  `python -m experiments.main --experiments <name> --models lean_ngs --seeds 42 123 456`.
+  Save results to `./results/<name>/`.
+- **Datasets**: `split_mnist`, `split_fashion`, `permuted_mnist`, `rotated_mnist`,
+  `blurry_mnist`, `noisy_mnist`, `split_cifar10`, `split_cifar100`, `digits`,
+  `svhn`, `split_cifar100_20`.  Use `BEST_CONFIGS` from `comprehensive_eval.py`
+  for hyperparams (with M1.1 + M1.3 fix applied, these now work correctly).
+- **Verification**: `ls results/` shows one JSON per (dataset, model, seed)
+  combination.  Each JSON has a valid `accuracy_matrix` with shape
+  `(n_tasks, n_tasks)`.
+
+### M3.3 Run all MNGS profiles on all datasets
+- **Depends on**: M2 complete
+- **Action**: Same as M3.2, but include `--models mngs_baseline mngs_cfg_net
+  mngs_ultra_edge mngs_abl_hyper`.
+- **Verification**: 4 new result files per dataset per seed.
+
+### M3.4 Run all baselines on all datasets
+- **Depends on**: M1 complete
+- **Action**: Same as M3.2, but include `--models mlp er ewc si lwf lora`.
+- **Verification**: 6 new result files per dataset per seed.
+
+### M3.5 Structural ablation (3 phases from TODO.md §3)
+- **Depends on**: M3.3 results exist
+- **Action**: For each dataset, compare:
+  - **Phase 1**: `Baseline_LeanNGS` vs all baselines (locked baselines).
+  - **Phase 2a**: `Baseline_LeanNGS` vs routing-only swap to `FACTORIZED`.
+  - **Phase 2b**: `Baseline_LeanNGS` vs storage-only swap to `HYPERNETWORK`.
+  - **Phase 2c**: `Baseline_LeanNGS` vs topology-only swap to `CONTINUOUS_DENSITY`.
+  - **Phase 3**: `CFG_Net_Full` (all three swaps combined).
+- **Output**: Generate `results/ablation_phase1.json`, `phase2a.json`, etc.
+  containing `{dataset: {profile: metrics}}`.
+- **Verification**: The ablation JSON is loadable by `experiments/ablation.py`.
+  Bar plots in `plots/` show Δ for each swap.
+
+### M3.6 HPO per dataset
+- **Depends on**: M3.2 results
+- **Action**: For datasets where `BEST_CONFIGS` doesn't have tuned parameters
+  (check: `split_cifar100`, `split_cifar100_20`, `svhn`, `permuted_mnist`),
+  run `python -m experiments.hpo --experiment <name> --trials 50`.
+  Store best params in `BEST_CONFIGS`.
+- **Verification**: `hpo_results/<name>/best_params.json` exists with tuned
+  values.  Apply them and verify accuracy improves over the default.
+
+### M3.7 Generate paper artifacts
+- **Depends on**: M3.2 through M3.6 complete
+- **Action**:
+  1. `python -m experiments.comprehensive_eval --plot-only` generates all plots.
+  2. `python -m experiments.report` generates `plots/validation_report.md`.
+  3. `python -m experiments.profiling` generates the compute comparison table.
+- **Verification**: `plots/` contains: radar chart, comparison bars, heatmaps,
+  forgetting plots.  `validation_report.md` exists.
+
+---
+
+## M4: PACKAGE — Ship Ready
+
+*Goal: reproducible, documented, CI-gated.*
+
+### M4.1 Reader docs
+- **Area**: `README.md`
+- **Action**: Write README with:
+  - What MNGS is (2-sentence elevator pitch).
+  - Quick start: `pip install -e . && python -m tests` (or equivalent).
+  - Reproduce command: `python -m experiments.main --experiments split_mnist --models lean_ngs`.
+  - Architecture diagram (ASCII or mermaid).
+  - Profiles table.
+  - Reference to TODO.md for design narrative.
+- **Verification**: README is readable end-to-end in 3 minutes.
+
+### M4.2 CI
+- **Area**: `.github/workflows/test.yml` (new file)
+- **Action**: Create GitHub Actions workflow:
+  ```yaml
+  name: Test
+  on: [push, pull_request]
+  jobs:
+    test:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v3
+        - uses: actions/setup-python@v4
+          with: { python-version: '3.10' }
+        - run: pip install -e ".[dev]"
+        - run: pytest tests/ -v
+  ```
+- **Verification**: Push a branch; CI turns green.
+
+### M4.3 Dependency pinning
+- **Area**: `pyproject.toml`
+- **Action**: Replace loose pins with tested versions.  Minimum:
+  ```toml
+  dependencies = [
+      "torch>=2.0.0,<2.2",
+      "numpy>=1.21,<1.25",
+  ]
+  [project.optional-dependencies]
+  dev = ["pytest>=7.0,<8.0"]
+  ```
+- **Verification**: `pip install -e .` on a clean venv succeeds.
+
+### M4.4 MNGS model serialization round-trip
+- **Area**: `mngs/model.py` + test
+- **Depends on**: M1.5 (param registration fix), M2.1, M2.2
+- **Problem**: `torch.save` / `torch.load` must work for any MNGS
+  configuration.
+- **Action**: Write a test:
+  ```python
+  def test_model_serialization():
+      for profile_fn in [Baseline_LeanNGS, CFG_Net_Full, Ultra_Edge_Sparse, Ablation_Hypernetwork_Only]:
+          config = profile_fn()
+          model = build_mngs(784, 10, config)
+          x = torch.randn(4, 784)
+          y1 = model(x)
+          torch.save(model.state_dict(), '/tmp/mngs.pt')
+          model2 = build_mngs(784, 10, config)
+          model2.load_state_dict(torch.load('/tmp/mngs.pt'))
+          y2 = model2(x)
+          assert torch.allclose(y1, y2, atol=1e-6)
+  ```
+- **Verification**: The test passes for all 4 profiles.
+
+### M4.5 New dataset: Full MNIST (non-split)
+- **Area**: `experiments/config.py`
+- **Action**: Add:
+  ```python
+  'full_mnist': ExperimentConfig(
+      name='Full-MNIST',
+      dataset='mnist',
+      scenario='class_incremental',
+      n_tasks=1,
+      classes_per_task=10,
+      input_dim=784,
+      output_dim=10,
+  ),
+  ```
+- **Run**: `python -m experiments.main --experiments full_mnist --models lean_ngs mlp`.
+- **Verification**: Result file shows accuracy on 10-class MNIST (should be
+  > 90% for MLP, competitive for LeanNGS).
+
+### M4.6 New dataset: TinyShakespeare
+- **Area**: new file `experiments/datasets_tinyshakespeare.py` + config
+- **Action**:
+  1. Create `datasets_tinyshakespeare.py`:
+     - Download from `https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt`
+     - Build vocab of unique chars (~65).
+     - Chunk into sequences of length 64.
+     - Split into 5 "tasks" by chunks per act (or 5 contiguous splits).
+     - Return `train_loader, test_loader` per task.
+  2. Add config:
+     ```python
+     'tinyshakespeare': ExperimentConfig(
+         name='TinyShakespeare',
+         dataset='tinyshakespeare',
+         scenario='class_incremental',
+         n_tasks=5,
+         classes_per_task=65,  # full vocab each task
+         input_dim=64,  # sequence length
+         output_dim=65,  # vocab size
+     ),
+     ```
+  3. The model treats this as next-char prediction (cross-entropy).
+     `input_dim = sequence_length` since characters are one-hot or embedding.
+     Adjust `p_down` / `p_up` if needed.
+- **Verification**: Model achieves > 20% accuracy on held-out chars (random is
+  ~1.5%).
+
+---
+
+## Execution Order
+
+```
+M1.1 ──→ M1.2 ──→ M1.3 ──→ M1.4 ──→ M1.5 ──→ M1.6 ──→ M1.7
+     (M1.1—M1.4 independent of each other; M1.5 independent of M1.1—M1.4)
+
+M1 complete ──→ M2.1 ──→ M2.2 ──→ M2.3 ──→ M2.4 ──→ M2.5
+                     │         │         │
+                     └──── M2.6 ──→ M2.7 ──→ M2.8 ──→ M2.9 ──→ M2.10
+                          (independent of model wiring)
+
+M1+M2 complete ──→ M3.1 ──→ M3.2 ──→ M3.3 ──→ M3.4
+                              │         │
+                              └──── M3.5 ──→ M3.6 ──→ M3.7
+                                   (analysis, not training)
+
+M1+M2+M3 complete ──→ M4.1 ──→ M4.2 ──→ M4.3 ──→ M4.4 ──→ M4.5 ──→ M4.6
+```
+
+Blocking chains:
+- M1.5 → M2.1 → M2.2 → M2.3 (gate registration → MemoryManagement → split gate)
+- M2.1 → M2.3 (FactorizedRouter needs MemoryManagement)
+- M2.1 → M2.5 (dynamic growth needs MemoryManagement)
+- M3.2 requires M1.1, M1.3 (training duration + metrics correctness)
+- M3.3 requires M2 (framework complete)
+- M3.4 requires M1 (no framework changes needed for baselines)
+
+Everything else can be run in parallel within a milestone.
+
+---
+
+## Task Count
+
+| Milestone | Tasks | Training runs required |
+|-----------|-------|----------------------|
+| M1 Fix | 7 | 0 |
+| M2 Build | 10 | 0 |
+| M3 Run | 7 | ~380 (5 lean_ngs + 4 mngs + 6 baselines + 11 datasets × 3 seeds) |
+| M4 Package | 6 | 2 (full_mnist + tinyshakespeare) |
+| **Total** | **30** | **~382** |
