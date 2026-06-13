@@ -19,8 +19,14 @@ def main():
     parser.add_argument('--experiments', nargs='+', default=['split_mnist'],
                         choices=list(EXPERIMENTS.keys()),
                         help='Experiments to run')
+    mngs_models = [
+        'mngs_baseline', 'mngs_cfg_net', 'mngs_ultra_edge', 'mngs_abl_hyper',
+        'mngs_baseline_lora', 'mngs_cfg_net_lora', 'mngs_abl_hyper_lora'
+    ]
+    all_models = ['lean_ngs', 'mlp', 'er', 'ewc', 'si', 'lwf', 'lora'] + mngs_models
+    
     parser.add_argument('--models', nargs='+', default=['lean_ngs', 'mlp', 'er', 'ewc', 'si', 'lwf', 'lora'],
-                        choices=['lean_ngs', 'mlp', 'er', 'ewc', 'si', 'lwf', 'lora'],
+                        choices=all_models,
                         help='Models to evaluate')
     parser.add_argument('--seeds', nargs='+', type=int, default=[42, 123, 456],
                         help='Random seeds')

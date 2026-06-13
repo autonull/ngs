@@ -21,17 +21,43 @@ def train_lean_ngs(model: LeanNGS, train_loader: DataLoader, task_id: int,
                    kd_weight=2.0, kd_temperature=2.0,
                    split_thresh=0.005, prune_thresh=0.01,
                    max_spawn_per_call=5, adapt_every_epoch=True,
+                   grad_clip: float = 1.0,
+                   lr_scheduler: str = 'cosine',
+                   warmup_epochs: int = 0,
                    **kwargs):
     """
     Train LeanNGS with replay + KD + adaptive density control.
+    
+    Args:
+        grad_clip: Gradient clipping max norm (0 to disable)
+        lr_scheduler: 'cosine', 'step', 'constant'
+        warmup_epochs: Number of warmup epochs for LR
     """
     model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    
+    # Learning rate scheduler
+    if lr_scheduler == 'cosine':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs - warmup_epochs)
+    elif lr_scheduler == 'step':
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=max(1, epochs // 3), gamma=0.5)
+    else:
+        scheduler = None
+    
+    def get_lr(epoch):
+        if warmup_epochs > 0 and epoch < warmup_epochs:
+            return lr * (epoch + 1) / warmup_epochs
+        return lr
 
     for epoch in range(epochs):
         model.train()
         losses = []
         kd_losses = []
+        
+        # Warmup LR
+        if warmup_epochs > 0 and epoch < warmup_epochs:
+            for pg in optimizer.param_groups:
+                pg['lr'] = get_lr(epoch)
 
         for x, y in train_loader:
             x = x.view(x.size(0), -1).to(device)
@@ -69,6 +95,11 @@ def train_lean_ngs(model: LeanNGS, train_loader: DataLoader, task_id: int,
             total_loss = ce_loss + kd_weight * kd_loss
             total_loss.backward()
             model.update_grad_ema()
+            
+            # Gradient clipping
+            if grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            
             optimizer.step()
 
             losses.append(ce_loss.item())
@@ -84,6 +115,10 @@ def train_lean_ngs(model: LeanNGS, train_loader: DataLoader, task_id: int,
 
         avg_loss = np.mean(losses)
         avg_kd = np.mean(kd_losses)
+        
+        # Step scheduler (after warmup)
+        if scheduler is not None and epoch >= warmup_epochs:
+            scheduler.step()
 
         # Adaptive density control
         if adapt_every_epoch:

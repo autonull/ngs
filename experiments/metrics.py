@@ -1,12 +1,14 @@
 """
 Evaluation metrics for continual learning.
 Includes: Accuracy matrix, Forgetting, BWT, FWT, LA, etc.
+Statistical significance testing for rigorous comparison.
 """
 import torch
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 import json
+from scipy import stats
 
 
 @dataclass
@@ -199,3 +201,112 @@ def print_results(metrics: CLMetrics, experiment_name: str = "Experiment"):
 
 
 from copy import deepcopy
+
+
+def compute_confidence_interval(values: np.ndarray, confidence: float = 0.95) -> Tuple[float, float]:
+    """Compute confidence interval for a set of values using t-distribution."""
+    n = len(values)
+    if n < 2:
+        return (float(values[0]), float(values[0])) if n == 1 else (0.0, 0.0)
+    mean = np.mean(values)
+    se = stats.sem(values)
+    h = se * stats.t.ppf((1 + confidence) / 2., n - 1)
+    return (mean - h, mean + h)
+
+
+def paired_ttest(values_a: np.ndarray, values_b: np.ndarray) -> Tuple[float, float]:
+    """Perform paired t-test between two sets of values. Returns (t-statistic, p-value)."""
+    if len(values_a) != len(values_b) or len(values_a) < 2:
+        return (0.0, 1.0)
+    t_stat, p_val = stats.ttest_rel(values_a, values_b)
+    return (float(t_stat), float(p_val))
+
+
+def welch_ttest(values_a: np.ndarray, values_b: np.ndarray) -> Tuple[float, float]:
+    """Perform Welch's t-test (unequal variance) between two sets of values."""
+    if len(values_a) < 2 or len(values_b) < 2:
+        return (0.0, 1.0)
+    t_stat, p_val = stats.ttest_ind(values_a, values_b, equal_var=False)
+    return (float(t_stat), float(p_val))
+
+
+def compare_models_significance(
+    results_a: Dict[str, List[float]],
+    results_b: Dict[str, List[float]],
+    metrics: List[str] = None,
+    paired: bool = True
+) -> Dict[str, Dict[str, float]]:
+    """
+    Compare two models across multiple metrics with statistical significance.
+    
+    Args:
+        results_a: {metric_name: [values across seeds]} for model A
+        results_b: {metric_name: [values across seeds]} for model B
+        metrics: List of metrics to compare (default: all common metrics)
+        paired: Whether to use paired t-test (same seeds) or Welch's t-test
+        
+    Returns:
+        {metric: {'t_stat': t, 'p_value': p, 'significant': bool, 'ci_a': (lo, hi), 'ci_b': (lo, hi)}}
+    """
+    if metrics is None:
+        metrics = list(set(results_a.keys()) & set(results_b.keys()))
+    
+    comparison = {}
+    for metric in metrics:
+        if metric not in results_a or metric not in results_b:
+            continue
+        vals_a = np.array(results_a[metric])
+        vals_b = np.array(results_b[metric])
+        
+        if paired:
+            t_stat, p_val = paired_ttest(vals_a, vals_b)
+        else:
+            t_stat, p_val = welch_ttest(vals_a, vals_b)
+        
+        ci_a = compute_confidence_interval(vals_a)
+        ci_b = compute_confidence_interval(vals_b)
+        
+        comparison[metric] = {
+            't_stat': t_stat,
+            'p_value': p_val,
+            'significant': p_val < 0.05,
+            'ci_a': ci_a,
+            'ci_b': ci_b,
+            'mean_a': float(np.mean(vals_a)),
+            'mean_b': float(np.mean(vals_b)),
+            'mean_diff': float(np.mean(vals_a) - np.mean(vals_b)),
+        }
+    
+    return comparison
+
+
+def bootstrap_confidence_interval(
+    values: np.ndarray,
+    n_bootstrap: int = 10000,
+    confidence: float = 0.95
+) -> Tuple[float, float]:
+    """Compute bootstrap confidence interval (useful for non-normal distributions)."""
+    if len(values) < 2:
+        return (float(values[0]), float(values[0])) if len(values) == 1 else (0.0, 0.0)
+    
+    bootstrap_means = []
+    for _ in range(n_bootstrap):
+        sample = np.random.choice(values, size=len(values), replace=True)
+        bootstrap_means.append(np.mean(sample))
+    
+    alpha = (1 - confidence) / 2
+    lower = np.percentile(bootstrap_means, 100 * alpha)
+    upper = np.percentile(bootstrap_means, 100 * (1 - alpha))
+    return (float(lower), float(upper))
+
+
+def effect_size_cohens_d(values_a: np.ndarray, values_b: np.ndarray) -> float:
+    """Compute Cohen's d effect size between two groups."""
+    n_a, n_b = len(values_a), len(values_b)
+    if n_a < 2 or n_b < 2:
+        return 0.0
+    var_a, var_b = np.var(values_a, ddof=1), np.var(values_b, ddof=1)
+    pooled_std = np.sqrt(((n_a - 1) * var_a + (n_b - 1) * var_b) / (n_a + n_b - 2))
+    if pooled_std == 0:
+        return 0.0
+    return float((np.mean(values_a) - np.mean(values_b)) / pooled_std)

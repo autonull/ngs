@@ -150,8 +150,16 @@ def create_tinyshakespeare_loaders(
         torch.from_numpy(y_task[test_idx]).long()
     )
     
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True,
+        num_workers=0, pin_memory=torch.cuda.is_available(),
+        persistent_workers=False
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False,
+        num_workers=0, pin_memory=torch.cuda.is_available(),
+        persistent_workers=False
+    )
     
     # Classes are all vocab characters (for next-char prediction)
     classes = list(range(vocab_size))
@@ -167,7 +175,17 @@ def get_tinyshakespeare_loaders(
     batch_size: int = 256,
     **kwargs
 ) -> Tuple[DataLoader, DataLoader, List[int]]:
-    """Unified interface for getting TinyShakespeare task loaders."""
+    """Unified interface for getting TinyShakespeare task loaders.
+    
+    NOTE: Experimental - uses one-hot encoding (input_dim = seq_len * vocab_size = 4160).
+    Training is extremely slow for MLP-based models at this input dimension.
+    """
+    import warnings
+    warnings.warn(
+        "TinyShakespeare uses one-hot encoding (input_dim=4160). "
+        "Training will be very slow. Consider reducing seq_len or using an embedding layer.",
+        UserWarning
+    )
     n_tasks = kwargs.get('n_tasks', 5)
     seq_len = kwargs.get('seq_len', 64)
     data_dir = kwargs.get('data_dir', './data')

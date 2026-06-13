@@ -23,12 +23,16 @@ class TrainConfig:
     batch_size: int = 256
     replay_size: int = 50000
     replay_ratio: float = 1.0  # 1:1 replay
-    kd_weight: float = 2.0
+    kd_weight: float = 10.0
     kd_temperature: float = 2.0
     split_thresh: float = 0.005
     prune_thresh: float = 0.01
     max_spawn_per_call: int = 5
     adapt_every_epoch: bool = True
+    # Training stability
+    grad_clip: float = 1.0
+    lr_scheduler: str = 'cosine'  # 'cosine', 'step', 'constant'
+    warmup_epochs: int = 0
 
 
 @dataclass
@@ -55,7 +59,7 @@ EXPERIMENTS = {
         n_tasks=5,
         classes_per_task=2,
         input_dim=784,
-        output_dim=2,
+        output_dim=10,
     ),
     'split_fashion': ExperimentConfig(
         name='Split-FashionMNIST',
@@ -64,7 +68,7 @@ EXPERIMENTS = {
         n_tasks=5,
         classes_per_task=2,
         input_dim=784,
-        output_dim=2,
+        output_dim=10,
     ),
     'permuted_mnist': ExperimentConfig(
         name='Permuted-MNIST',
@@ -82,7 +86,7 @@ EXPERIMENTS = {
         n_tasks=5,
         classes_per_task=2,
         input_dim=3072,
-        output_dim=2,
+        output_dim=10,
     ),
     'split_cifar100': ExperimentConfig(
         name='Split-CIFAR100',
@@ -91,7 +95,7 @@ EXPERIMENTS = {
         n_tasks=10,
         classes_per_task=10,
         input_dim=3072,
-        output_dim=10,
+        output_dim=100,
     ),
     'digits': ExperimentConfig(
         name='Digits',
@@ -100,7 +104,7 @@ EXPERIMENTS = {
         n_tasks=5,
         classes_per_task=2,
         input_dim=64,
-        output_dim=2,
+        output_dim=10,
     ),
     'rotated_mnist': ExperimentConfig(
         name='Rotated-MNIST',
@@ -136,7 +140,7 @@ EXPERIMENTS = {
         n_tasks=20,
         classes_per_task=5,
         input_dim=3072,
-        output_dim=5,
+        output_dim=100,
     ),
     'full_mnist': ExperimentConfig(
         name='Full-MNIST',

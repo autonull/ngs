@@ -1,9 +1,11 @@
 """Main MNGS model integrating all modular components."""
+from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import List, Tuple, Union
 
-from mngs.core.config import MNGSConfig, RoutingStrategy, ParameterStorage, TopologyControl
+from mngs.core.config import MNGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
 from mngs.modules.routers import MonolithicRouter, FactorizedRouter, LSRRouter
 from mngs.modules.parameter_stores import DirectAdapterStore, HypernetworkStore
 from mngs.modules.topology_managers import HeuristicManager, ContinuousDensityManager
@@ -53,6 +55,10 @@ class MNGS(nn.Module):
         self.register_buffer('activation_density', torch.zeros(config.max_k))
         self.register_buffer('error_density', torch.zeros(config.max_k))
         
+        # Cached routing info for error density estimation
+        self._last_active_indices = None
+        self._last_routing_weights = None
+        
         # Initialize router units
         if hasattr(self.router, 'initialize_units'):
             self.router.initialize_units(config.k_init)
@@ -70,7 +76,8 @@ class MNGS(nn.Module):
                 ema_decay=self.config.ema_decay
             )
         elif routing == RoutingStrategy.FACTORIZED_SUBSPACE:
-            units_per_space = -(-self.config.k_init // self.config.num_subspaces)  # ceiling div
+            units_per_space = self.config.max_k // self.config.num_subspaces
+            active_per_space = -(-self.config.k_init // self.config.num_subspaces)  # ceiling div
             router = FactorizedRouter(
                 d_latent=self.d_latent,
                 num_subspaces=self.config.num_subspaces,
@@ -78,6 +85,11 @@ class MNGS(nn.Module):
                 top_k=self.config.top_k_factorized,
                 tau=self.config.tau
             )
+            # Only activate k_init units (rest are free slots for growth)
+            router.active_mask.fill_(False)
+            for s in range(self.config.num_subspaces):
+                start = s * units_per_space
+                router.active_mask[start:start + active_per_space] = True
             if self.param_stores_per_subspace is not None:
                 router.set_param_stores(self.param_stores_per_subspace)
             return router
@@ -116,7 +128,7 @@ class MNGS(nn.Module):
     def _build_param_stores_per_subspace(self):
         """Build parameter stores for each subspace (used by FactorizedRouter)."""
         storage = self.config.parameter_storage
-        units_per_space = -(-self.config.k_init // self.config.num_subspaces)
+        units_per_space = self.config.max_k // self.config.num_subspaces
         num_subspaces = self.config.num_subspaces
         
         param_stores = []
@@ -160,7 +172,7 @@ class MNGS(nn.Module):
             raise ValueError(f"Unknown topology control: {topology}")
     
     @property
-    def K(self):
+    def K(self) -> int:
         """Number of active units."""
         if hasattr(self.router, 'active_mask'):
             return self.router.active_mask.sum().item()
@@ -188,10 +200,17 @@ class MNGS(nn.Module):
                 # Factorized routing: list of subspace indices and weights
                 subspace_indices, subspace_weights = routing_output
                 out = self._forward_factorized(z, subspace_indices, subspace_weights)
+                # Router now returns global flat indices directly — just concatenate
+                flat_indices = torch.cat(subspace_indices, dim=1)
+                flat_weights = torch.cat(subspace_weights, dim=1)
+                self._last_active_indices = flat_indices
+                self._last_routing_weights = flat_weights
             else:
                 # Standard routing: [B, K] indices and weights
                 active_indices, routing_weights = routing_output
                 out = self._forward_standard(z, active_indices, routing_weights)
+                self._last_active_indices = active_indices
+                self._last_routing_weights = routing_weights
         else:
             raise ValueError(f"Unexpected routing output format: {type(routing_output)}")
         
@@ -223,25 +242,27 @@ class MNGS(nn.Module):
         # Up projection with residual
         return self.p_up(blended + self.gamma * z)
     
-    def _forward_factorized(self, z: torch.Tensor, subspace_indices: list, 
-                           subspace_weights: list) -> torch.Tensor:
+    def _forward_factorized(self, z: torch.Tensor, subspace_indices: List[torch.Tensor], 
+                           subspace_weights: List[torch.Tensor]) -> torch.Tensor:
         """Forward pass for factorized routing."""
         B = z.shape[0]
         num_subspaces = len(subspace_indices)
+        units_per_space = self.config.max_k // self.config.num_subspaces
         
         all_activations = []
         for s in range(num_subspaces):
-            indices = subspace_indices[s]  # [B, top_k] (local within subspace)
+            global_indices = subspace_indices[s]  # [B, top_k] (global flat indices)
             weights = subspace_weights[s]    # [B, top_k]
+            
+            # Convert global flat indices back to local subspace indices
+            local_indices = global_indices - s * units_per_space
             
             # Use per-subspace parameter store if available (M2.3)
             if self.param_stores_per_subspace is not None:
                 param_store = self.param_stores_per_subspace[s]
-                local_out = param_store(indices, z)  # [B, top_k, d]
+                local_out = param_store(local_indices, z)  # [B, top_k, d]
             else:
-                # Fallback: convert to global indices (for backwards compat with PRE_ALLOCATED_MASKED)
-                units_per_space = -(-self.config.k_init // self.config.num_subspaces)
-                global_indices = indices + s * units_per_space
+                # Fallback: use global param store
                 local_out = self.param_store(global_indices, z)
             
             # Weighted combination within subspace
@@ -273,14 +294,43 @@ class MNGS(nn.Module):
             p = weights
             return -(p * torch.log(p + 1e-8)).sum(dim=-1).mean()
     
-    def update_grad_ema(self):
+    def update_unit_errors(self, logits: torch.Tensor, targets: torch.Tensor,
+                           decay: float = 0.99) -> None:
+        """Update per-unit error density from training loss.
+        
+        Attributes loss to units based on their routing weights.
+        Called from the training loop after computing the loss.
+        """
+        if self._last_active_indices is None or self._last_routing_weights is None:
+            return
+        
+        with torch.no_grad():
+            per_sample_loss = F.cross_entropy(logits, targets, reduction='none')  # [B]
+            weights = self._last_routing_weights  # [B, K]
+            active_idx = self._last_active_indices  # [B, K]
+            
+            # Weighted loss attribution: for each unit, average loss weighted by routing weight
+            unit_loss = (weights * per_sample_loss.unsqueeze(-1)).mean(dim=0)  # [K]
+            
+            # Map back to global indices and update with EMA
+            for k in range(active_idx.shape[1]):
+                global_idx = active_idx[:, k]  # [B] (same index for all samples in this slot)
+                unique_idx = global_idx.unique()
+                for uid in unique_idx:
+                    mask = global_idx == uid
+                    self.error_density[uid] = (
+                        decay * self.error_density[uid]
+                        + (1 - decay) * unit_loss[k].item()
+                    )
+    
+    def update_grad_ema(self) -> None:
         """Update gradient EMA for topology management.
         
         Deprecated: automatic via register_hook in MonolithicRouter.
         Kept for backward compatibility.
         """
     
-    def adapt_density(self, **kwargs) -> tuple:
+    def adapt_density(self, **kwargs) -> Tuple[int, int, int]:
         """
         Apply topology management (split/prune/spawn), respecting memory strategy.
         
@@ -307,11 +357,16 @@ class MNGS(nn.Module):
         return result
     
     def split_gate_loss(self) -> torch.Tensor:
-        """Compute regularization loss for continuous density split gates."""
+        """Compute regularization loss for continuous density split gates.
+        
+        Pushes gates toward 1 (split) for high-error units and 0 (keep) for low-error units.
+        """
+        import torch.nn.functional as F
         sig = torch.sigmoid(self.split_gate)
-        # Push gamma to {0, 1} with strength proportional to error density
-        err = self.error_density / (self.error_density.sum() + 1e-8)
-        return -(sig * (1 - sig) * err).sum()
+        # Normalize error density to [0, 1] as target
+        err = self.error_density / (self.error_density.max() + 1e-8)
+        # BCE: pushes gate toward 1 where error is high, toward 0 where error is low
+        return F.binary_cross_entropy(sig, err.detach())
     
     def diversity_loss(self) -> torch.Tensor:
         """Push Gaussian means apart to encourage coverage."""

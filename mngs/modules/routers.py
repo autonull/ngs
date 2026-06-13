@@ -1,15 +1,17 @@
 """Router implementations for MNGS."""
+from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from abc import ABC, abstractmethod
+from typing import Tuple, List
 
 
 class BaseRouter(nn.Module, ABC):
     """Base class for all routing strategies."""
     
     @abstractmethod
-    def forward(self, z: torch.Tensor, **kwargs) -> tuple:
+    def forward(self, z: torch.Tensor, **kwargs) -> Tuple[torch.Tensor, torch.Tensor] | Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
         Route inputs to active units.
         
@@ -18,8 +20,8 @@ class BaseRouter(nn.Module, ABC):
             
         Returns:
             Tuple of (active_indices, routing_weights)
-            - active_indices: [B, k_actual] indices of selected units
-            - routing_weights: [B, k_actual] softmax weights
+            - active_indices: [B, k_actual] or list of [B, k_actual] per subspace
+            - routing_weights: [B, k_actual] or list of [B, k_actual] per subspace
         """
         pass
 
@@ -135,8 +137,11 @@ class FactorizedRouter(BaseRouter):
         self.tau = nn.Parameter(torch.tensor(tau))
         self.eps = 1e-5
         
+        total_units = num_subspaces * units_per_space
+        
         # Project latent space into subspaces
         d_sub = max(d_latent // num_subspaces, 1)
+        self.d_sub = d_sub
         self.subspace_projectors = nn.ModuleList([
             nn.Linear(d_latent, d_sub, bias=False)
             for _ in range(num_subspaces)
@@ -147,6 +152,11 @@ class FactorizedRouter(BaseRouter):
         self.log_s = nn.Parameter(torch.zeros(num_subspaces, units_per_space, d_sub))
         self.log_alpha = nn.Parameter(torch.zeros(num_subspaces, units_per_space))
         
+        # Active mask for topology adaptation (flat over all subspaces)
+        self.register_buffer('active_mask', torch.ones(total_units, dtype=torch.bool))
+        self.register_buffer('grad_mu_ema', torch.zeros(total_units))
+        self.ema_decay = 0.99
+        
         # Per-subspace parameter stores (optional, for DYNAMIC_GROWTH support)
         if param_stores is not None:
             self.param_stores = nn.ModuleList(param_stores)
@@ -156,6 +166,18 @@ class FactorizedRouter(BaseRouter):
     def set_param_stores(self, param_stores):
         """Set per-subspace parameter stores."""
         self.param_stores = nn.ModuleList(param_stores)
+    
+    @property
+    def flat_mu(self):
+        return self.mu.view(-1, self.d_sub)
+    
+    @property
+    def flat_log_s(self):
+        return self.log_s.view(-1, self.d_sub)
+    
+    @property
+    def flat_log_alpha(self):
+        return self.log_alpha.view(-1)
         
     def forward(self, z: torch.Tensor) -> tuple:
         """
@@ -166,7 +188,7 @@ class FactorizedRouter(BaseRouter):
             
         Returns:
             (subspace_indices, subspace_weights)
-            - subspace_indices: list of [B, top_k] tensors, one per subspace
+            - subspace_indices: list of [B, top_k] tensors (global flat indices)
             - subspace_weights: list of [B, top_k] tensors
         """
         B = z.shape[0]
@@ -174,28 +196,43 @@ class FactorizedRouter(BaseRouter):
         subspace_weights = []
         
         for s in range(self.num_subspaces):
+            start = s * self.units_per_space
+            end = start + self.units_per_space
+            
+            # Get active units in this subspace
+            sub_active = self.active_mask[start:end]
+            active_local = sub_active.nonzero(as_tuple=True)[0]
+            
+            if len(active_local) == 0:
+                # No active units — return zeros
+                subspace_indices.append(torch.zeros(B, self.top_k, dtype=torch.long, device=z.device))
+                subspace_weights.append(torch.zeros(B, self.top_k, device=z.device))
+                continue
+            
             # Project into subspace
             z_s = self.subspace_projectors[s](z)  # [B, d_sub]
             
-            # Get subspace units
-            mu_s = self.mu[s]                     # [M, d_sub]
-            log_s_s = self.log_s[s]                 # [M, d_sub]
-            log_alpha_s = self.log_alpha[s]         # [M]
+            # Get active subspace units
+            mu_s = self.mu[s][active_local]         # [K_active, d_sub]
+            log_s_s = self.log_s[s][active_local]   # [K_active, d_sub]
+            log_alpha_s = self.log_alpha[s][active_local]  # [K_active]
             
             # Diagonal Mahalanobis in subspace
-            diff = z_s.unsqueeze(1) - mu_s.unsqueeze(0)   # [B, M, d_sub]
-            s_sq = torch.exp(2 * log_s_s) + self.eps        # [M, d_sub]
-            mahalanobis_sq = ((diff ** 2) / s_sq).sum(dim=-1)  # [B, M]
+            diff = z_s.unsqueeze(1) - mu_s.unsqueeze(0)   # [B, K_active, d_sub]
+            s_sq = torch.exp(2 * log_s_s) + self.eps
+            mahalanobis_sq = ((diff ** 2) / s_sq).sum(dim=-1)  # [B, K_active]
             
             # Log-weights
-            log_w = log_alpha_s - (0.5 / self.tau) * mahalanobis_sq  # [B, M]
+            log_w = log_alpha_s - (0.5 / self.tau) * mahalanobis_sq
             
             # Top-K per subspace
-            k_actual = min(self.top_k, self.units_per_space)
-            topk_vals, topk_idx = torch.topk(log_w, k_actual, dim=-1)  # [B, k_actual]
-            topk_weights = F.softmax(topk_vals, dim=-1)               # [B, k_actual]
+            k_actual = min(self.top_k, len(active_local))
+            topk_vals, topk_rel_idx = torch.topk(log_w, k_actual, dim=-1)
+            topk_weights = F.softmax(topk_vals, dim=-1)
             
-            subspace_indices.append(topk_idx)
+            # Convert local indices to global flat indices
+            topk_global = active_local[topk_rel_idx] + start
+            subspace_indices.append(topk_global)
             subspace_weights.append(topk_weights)
         
         return subspace_indices, subspace_weights

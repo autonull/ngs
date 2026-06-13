@@ -90,3 +90,38 @@ def test_entropy_loss():
     x = torch.randn(4, 784)
     eloss = model.entropy_loss(x)
     assert eloss.ndim == 0, "Entropy loss should be scalar"
+
+
+def test_continuous_density_split():
+    """Verify ContinuousDensityManager splits units when error density is high."""
+    from mngs.core.config import MNGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
+    # Use monolithic routing (has active_mask) + continuous density topology
+    config = MNGSConfig(
+        latent_dim=32,
+        k_init=128,
+        max_k=512,
+        top_k=8,
+        routing=RoutingStrategy.MONOLITHIC_MAHALANOBIS,
+        parameter_storage=ParameterStorage.DIRECT_ADAPTER,
+        topology_control=TopologyControl.CONTINUOUS_DENSITY,
+        memory_management=MemoryManagement.PRE_ALLOCATED_MASKED,
+        use_lora=True,
+    )
+    model = build_mngs(d_in=784, d_out=10, config=config)
+
+    initial_active = model.K
+
+    # Set split gates above threshold for all active units
+    active_idx = model.router.active_mask.nonzero(as_tuple=True)[0]
+    model.split_gate.data[active_idx] = 10.0  # sigmoid(10) ~ 1.0 > threshold
+
+    # Set error density high so the split condition is met
+    model.error_density[active_idx] = 1.0  # well above 1e-3 threshold
+
+    # Run forward pass to populate activation_density
+    x = torch.randn(4, 784)
+    model(x)
+
+    _, num_split, _ = model.adapt_density()
+    assert num_split > 0, "ContinuousDensityManager should split when error density is high"
+    assert model.K >= initial_active, "Active units should increase after split"

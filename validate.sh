@@ -39,10 +39,10 @@ EXP_STR="${EXPERIMENTS[*]}"
 
 case "$STAGE" in
     smoke)
-        echo "=== SMOKE TEST: 1 epoch, 1 seed, 1 dataset ==="
+        echo "=== SMOKE TEST: 1 epoch, 1 seed, all MNGS profiles ==="
         python -m experiments.main \
             --experiments split_mnist \
-            --models lean_ngs \
+            --models ${MODELS_MNGS_PM[*]} ${MODELS_MNGS_LORA[*]} \
             --seeds 42 \
             --output-dir "$OUT_DIR" \
             --plots-dir "$PLOTS_DIR" \

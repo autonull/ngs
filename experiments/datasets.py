@@ -134,8 +134,16 @@ class PermutedMNIST:
         train_ds = NormalizeDataset(train_ds)
         test_ds = NormalizeDataset(test_ds)
 
-        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-        test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, shuffle=True,
+            num_workers=0, pin_memory=torch.cuda.is_available(),
+            persistent_workers=False
+        )
+        test_loader = DataLoader(
+            test_ds, batch_size=batch_size, shuffle=False,
+            num_workers=0, pin_memory=torch.cuda.is_available(),
+            persistent_workers=False
+        )
         return train_loader, test_loader
 
 
@@ -160,8 +168,16 @@ class RotatedMNIST:
         train_ds = datasets.MNIST('./data', train=True, download=True, transform=transform)
         test_ds = datasets.MNIST('./data', train=False, download=True, transform=transform)
         
-        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-        test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, shuffle=True,
+            num_workers=0, pin_memory=torch.cuda.is_available(),
+            persistent_workers=False
+        )
+        test_loader = DataLoader(
+            test_ds, batch_size=batch_size, shuffle=False,
+            num_workers=0, pin_memory=torch.cuda.is_available(),
+            persistent_workers=False
+        )
         return train_loader, test_loader
 
 
@@ -195,8 +211,16 @@ class BlurryMNIST:
         train_ds = datasets.MNIST('./data', train=True, download=True, transform=transform)
         test_ds = datasets.MNIST('./data', train=False, download=True, transform=transform)
         
-        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-        test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, shuffle=True,
+            num_workers=0, pin_memory=torch.cuda.is_available(),
+            persistent_workers=False
+        )
+        test_loader = DataLoader(
+            test_ds, batch_size=batch_size, shuffle=False,
+            num_workers=0, pin_memory=torch.cuda.is_available(),
+            persistent_workers=False
+        )
         return train_loader, test_loader
 
 
@@ -227,8 +251,16 @@ class NoisyMNIST:
         train_ds = datasets.MNIST('./data', train=True, download=True, transform=transform)
         test_ds = datasets.MNIST('./data', train=False, download=True, transform=transform)
         
-        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-        test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, shuffle=True,
+            num_workers=0, pin_memory=torch.cuda.is_available(),
+            persistent_workers=False
+        )
+        test_loader = DataLoader(
+            test_ds, batch_size=batch_size, shuffle=False,
+            num_workers=0, pin_memory=torch.cuda.is_available(),
+            persistent_workers=False
+        )
         return train_loader, test_loader
 
 
@@ -264,9 +296,15 @@ def create_split_loaders(
     task_id: int,
     classes_per_task: int,
     batch_size: int = 256,
-    augment: bool = False
+    augment: bool = False,
+    remap_labels: bool = False
 ) -> Tuple[DataLoader, DataLoader, List[int]]:
-    """Create train/test loaders for a specific split task."""
+    """Create train/test loaders for a specific split task.
+    
+    Args:
+        remap_labels: If True, remap labels to 0..C-1 (task-incremental).
+                     If False, keep original labels (class-incremental).
+    """
     transform = get_transform(dataset_name, augment)
 
     if dataset_name == 'mnist':
@@ -289,11 +327,27 @@ def create_split_loaders(
 
     classes = list(range(task_id * classes_per_task, (task_id + 1) * classes_per_task))
 
-    train_wrapped = RemapLabels(train_ds, classes)
-    test_wrapped = RemapLabels(test_ds, classes)
+    if remap_labels:
+        train_wrapped = RemapLabels(train_ds, classes)
+        test_wrapped = RemapLabels(test_ds, classes)
+    else:
+        # Class-incremental: keep original labels, filter by classes
+        from torch.utils.data import Subset
+        train_idx = [i for i, (_, target) in enumerate(train_ds) if target in classes]
+        test_idx = [i for i, (_, target) in enumerate(test_ds) if target in classes]
+        train_wrapped = Subset(train_ds, train_idx)
+        test_wrapped = Subset(test_ds, test_idx)
 
-    train_loader = DataLoader(train_wrapped, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_wrapped, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(
+        train_wrapped, batch_size=batch_size, shuffle=True,
+        num_workers=0, pin_memory=torch.cuda.is_available(),
+        persistent_workers=False
+    )
+    test_loader = DataLoader(
+        test_wrapped, batch_size=batch_size, shuffle=False,
+        num_workers=0, pin_memory=torch.cuda.is_available(),
+        persistent_workers=False
+    )
 
     return train_loader, test_loader, classes
 
@@ -328,8 +382,16 @@ def create_digits_loaders(
         torch.from_numpy(y_task[test_idx]).long()
     )
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True,
+        num_workers=0, pin_memory=torch.cuda.is_available(),
+        persistent_workers=False
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False,
+        num_workers=0, pin_memory=torch.cuda.is_available(),
+        persistent_workers=False
+    )
 
     return train_loader, test_loader, classes
 
@@ -339,17 +401,24 @@ def get_task_loaders(
     task_id: int,
     classes_per_task: int = 2,
     batch_size: int = 256,
+    scenario: str = 'class_incremental',
     **kwargs
 ) -> Tuple[DataLoader, DataLoader, List[int]]:
-    """Unified interface for getting task loaders."""
+    """Unified interface for getting task loaders.
+    
+    Args:
+        scenario: 'class_incremental' (keep original labels), 'task_incremental' (remap labels)
+    """
+    remap = scenario == 'task_incremental'
+    
     if config_name == 'split_mnist':
-        return create_split_loaders('mnist', task_id, classes_per_task, batch_size)
+        return create_split_loaders('mnist', task_id, classes_per_task, batch_size, remap_labels=remap)
     elif config_name == 'split_fashion':
-        return create_split_loaders('fashion', task_id, classes_per_task, batch_size)
+        return create_split_loaders('fashion', task_id, classes_per_task, batch_size, remap_labels=remap)
     elif config_name == 'split_cifar10':
-        return create_split_loaders('cifar10', task_id, classes_per_task, batch_size)
+        return create_split_loaders('cifar10', task_id, classes_per_task, batch_size, remap_labels=remap)
     elif config_name == 'split_cifar100':
-        return create_split_loaders('cifar100', task_id, classes_per_task, batch_size)
+        return create_split_loaders('cifar100', task_id, classes_per_task, batch_size, remap_labels=remap)
     elif config_name == 'digits':
         return create_digits_loaders(task_id, classes_per_task, batch_size)
     elif config_name == 'permuted_mnist':
@@ -381,7 +450,7 @@ def get_task_loaders(
         classes = list(range(10))
         return train_loader, test_loader, classes
     elif config_name == 'svhn':
-        return create_split_loaders('svhn', task_id, classes_per_task, batch_size)
+        return create_split_loaders('svhn', task_id, classes_per_task, batch_size, remap_labels=remap)
     elif config_name == 'mnist':
         # Full MNIST: all 10 classes in one task
         transform = get_transform('mnist', augment=False)

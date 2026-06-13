@@ -75,34 +75,43 @@ def run_experiment(
     if model_name in mngs_models or model_name.startswith('mngs_') or model_name in ['er', 'lean_ngs']:
         replay_buffer = ReplayBuffer(max_size=config.train.replay_size)
 
-    # Task loader function
-    def get_task_data(task_id):
-        if config.dataset == 'permuted_mnist':
-            permuted = PermutedMNIST(n_tasks=config.n_tasks, seed=seed)
-            train_loader, test_loader = permuted.get_task_data(task_id, config.train.batch_size)
-            classes = list(range(10))
-        elif config.dataset == 'rotated_mnist':
-            rotated = RotatedMNIST(n_tasks=config.n_tasks, seed=seed)
-            train_loader, test_loader = rotated.get_task_data(task_id, config.train.batch_size)
-            classes = list(range(10))
-        elif config.dataset == 'blurry_mnist':
-            blurry = BlurryMNIST(n_tasks=config.n_tasks, seed=seed)
-            train_loader, test_loader = blurry.get_task_data(task_id, config.train.batch_size)
-            classes = list(range(10))
-        elif config.dataset == 'noisy_mnist':
-            noisy = NoisyMNIST(n_tasks=config.n_tasks, seed=seed)
-            train_loader, test_loader = noisy.get_task_data(task_id, config.train.batch_size)
-            classes = list(range(10))
-        elif config.dataset == 'tinyshakespeare':
-            train_loader, test_loader, classes = get_tinyshakespeare_loaders(
+    # Pre-create all task loaders once (efficient for split datasets)
+    if config.dataset in ['permuted_mnist', 'rotated_mnist', 'blurry_mnist', 'noisy_mnist']:
+        # These create fresh permutations/transforms per call - keep lazy
+        def get_task_data(task_id):
+            if config.dataset == 'permuted_mnist':
+                permuted = PermutedMNIST(n_tasks=config.n_tasks, seed=seed)
+                train_loader, test_loader = permuted.get_task_data(task_id, config.train.batch_size)
+                classes = list(range(10))
+            elif config.dataset == 'rotated_mnist':
+                rotated = RotatedMNIST(n_tasks=config.n_tasks, seed=seed)
+                train_loader, test_loader = rotated.get_task_data(task_id, config.train.batch_size)
+                classes = list(range(10))
+            elif config.dataset == 'blurry_mnist':
+                blurry = BlurryMNIST(n_tasks=config.n_tasks, seed=seed)
+                train_loader, test_loader = blurry.get_task_data(task_id, config.train.batch_size)
+                classes = list(range(10))
+            elif config.dataset == 'noisy_mnist':
+                noisy = NoisyMNIST(n_tasks=config.n_tasks, seed=seed)
+                train_loader, test_loader = noisy.get_task_data(task_id, config.train.batch_size)
+                classes = list(range(10))
+            return train_loader, test_loader, classes
+    elif config.dataset == 'tinyshakespeare':
+        def get_task_data(task_id):
+            return get_tinyshakespeare_loaders(
                 config.dataset, task_id, config.classes_per_task, config.train.batch_size,
                 n_tasks=config.n_tasks, seq_len=config.input_dim
             )
-        else:
-            train_loader, test_loader, classes = get_task_loaders(
-                config.dataset, task_id, config.classes_per_task, config.train.batch_size
-            )
-        return train_loader, test_loader, classes
+    else:
+        # Split datasets: pre-create all loaders once
+        task_loaders = []
+        for tid in range(config.n_tasks):
+            task_loaders.append(get_task_loaders(
+                config.dataset, tid, config.classes_per_task, config.train.batch_size,
+                scenario=config.scenario
+            ))
+        def get_task_data(task_id):
+            return task_loaders[task_id]
 
     # Run continual evaluation
     accuracy_matrix = np.zeros((config.n_tasks, config.n_tasks))
@@ -111,6 +120,11 @@ def run_experiment(
 
     for task_id in range(config.n_tasks):
         train_loader, test_loader, classes = get_task_data(task_id)
+
+        # Store training data for replay buffer update (train_loader gets exhausted)
+        train_data = []
+        for x, y in train_loader:
+            train_data.append((x, y))
 
         # Train
         train_kwargs['replay_buffer'] = replay_buffer
@@ -135,8 +149,8 @@ def run_experiment(
             accuracy_matrix[eval_task, task_id] = acc
 
         # Add current task data to replay buffer AFTER training
-        if replay_buffer:
-            for x, y in train_loader:
+        if replay_buffer is not None:
+            for x, y in train_data:
                 x_flat = x.view(x.size(0), -1)
                 replay_buffer.add(x_flat, torch.nn.functional.one_hot(y, num_classes=config.output_dim).float())
 
@@ -225,7 +239,8 @@ def run_all_experiments(
 
 
 def aggregate_results(results: Dict, group_by: str = 'model') -> Dict:
-    """Aggregate results across seeds."""
+    """Aggregate results across seeds with confidence intervals."""
+    from experiments.metrics import compute_confidence_interval
     grouped = {}
 
     for key, result in results.items():
@@ -276,12 +291,56 @@ def aggregate_results(results: Dict, group_by: str = 'model') -> Dict:
         grouped[group_key]['fwt'].append(m['fwt'])
         grouped[group_key]['la'].append(m['la'])
 
-    # Compute mean/std
+    # Compute mean/std + confidence intervals + raw values
     aggregated = {}
     for key, vals in grouped.items():
-        aggregated[key] = {
-            k: {'mean': np.mean(v), 'std': np.std(v)}
-            for k, v in vals.items()
-        }
-
+        aggregated[key] = {}
+        for k, v in vals.items():
+            arr = np.array(v)
+            ci = compute_confidence_interval(arr)
+            aggregated[key][k] = {
+                'mean': float(np.mean(arr)),
+                'std': float(np.std(arr)),
+                'ci_95': ci,
+                'values': v,  # keep raw values for significance testing
+                'n': len(v)
+            }
     return aggregated
+
+
+def compare_models_statistical(
+    results: Dict,
+    model_a: str,
+    model_b: str,
+    metrics: List[str] = None,
+    paired: bool = True
+) -> Dict:
+    """Compare two models with statistical significance testing."""
+    from experiments.metrics import compare_models_significance, effect_size_cohens_d
+    
+    agg = aggregate_results(results, group_by='model')
+    
+    if model_a not in agg or model_b not in agg:
+        return {'error': f'Models not found in results: {model_a}, {model_b}'}
+    
+    # Extract raw values for each metric
+    data_a = {}
+    data_b = {}
+    if metrics is None:
+        metrics = ['avg_final_accuracy', 'avg_forgetting', 'bwt', 'fwt', 'la']
+    
+    for metric in metrics:
+        if metric in agg[model_a] and metric in agg[model_b]:
+            data_a[metric] = agg[model_a][metric]['values']
+            data_b[metric] = agg[model_b][metric]['values']
+    
+    comparison = compare_models_significance(data_a, data_b, metrics, paired)
+    
+    # Add effect sizes
+    for metric in metrics:
+        if metric in data_a and metric in data_b:
+            comparison[metric]['cohens_d'] = effect_size_cohens_d(
+                np.array(data_a[metric]), np.array(data_b[metric])
+            )
+    
+    return comparison

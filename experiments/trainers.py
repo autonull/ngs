@@ -43,9 +43,14 @@ def train_er(model: ERModel, train_loader: DataLoader, task_id: int,
     model.train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
+    # Store training data for replay buffer update (train_loader gets exhausted)
+    train_data = []
+    for x, y in train_loader:
+        train_data.append((x, y))
+
     for epoch in range(epochs):
         losses = []
-        for x, y in train_loader:
+        for x, y in train_data:
             x = x.view(x.size(0), -1).to(device)
             y = y.to(device)
 
@@ -67,7 +72,7 @@ def train_er(model: ERModel, train_loader: DataLoader, task_id: int,
 
         # Update replay buffer
         if replay_buffer:
-            for x, y in train_loader:
+            for x, y in train_data:
                 x_flat = x.view(x.size(0), -1)
                 replay_buffer.add(x_flat, F.one_hot(y, num_classes=model.mlp.net[-1].out_features).float())
 
