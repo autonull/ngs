@@ -105,14 +105,6 @@ def train_lean_ngs(model: LeanNGS, train_loader: DataLoader, task_id: int,
             losses.append(ce_loss.item())
             kd_losses.append(kd_loss.item() if isinstance(kd_loss, torch.Tensor) else kd_loss)
 
-            # Update replay buffer with new task samples
-            if replay_buffer:
-                with torch.no_grad():
-                    replay_buffer.add(
-                        x[:x.size(0)//2].detach().cpu(),
-                        y_onehot[:y_onehot.size(0)//2].detach().cpu()
-                    )
-
         avg_loss = np.mean(losses)
         avg_kd = np.mean(kd_losses)
         

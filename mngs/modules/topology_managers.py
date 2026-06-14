@@ -201,12 +201,14 @@ class ContinuousDensityManager(BaseTopologyManager):
                  split_threshold: float = 0.05,
                  prune_threshold: float = 0.01,
                  density_decay: float = 0.99,
-                 split_gate_threshold: float = 0.7,
+                 split_gate_threshold: float = 0.65,
+                 spawn_threshold: float = -5.0,
                  noise_std: float = 0.01):
         self.split_threshold = split_threshold
         self.prune_threshold = prune_threshold
         self.density_decay = density_decay
         self.split_gate_threshold = split_gate_threshold
+        self.spawn_threshold = spawn_threshold
         self.noise_std = noise_std
     
     @staticmethod
@@ -217,16 +219,19 @@ class ContinuousDensityManager(BaseTopologyManager):
         return router.mu, router.log_s, router.log_alpha
     
     def adapt_topology(self, model, split_thresh: float = None,
-                       prune_thresh: float = None, **kwargs):
+                       prune_thresh: float = None, spawn_thresh: float = None,
+                       z_samples: torch.Tensor = None, max_spawn_per_call: int = 5, **kwargs):
         """
         Differentiable topology adaptation via split gates.
         
         Executes a split when split_gate > threshold and error density is high.
+        Also spawns new units in uncovered regions of the latent space.
         """
         if not hasattr(model.router, 'active_mask'):
             return 0, 0, 0
         
         prune_thresh = prune_thresh if prune_thresh is not None else self.prune_threshold
+        spawn_thresh = spawn_thresh if spawn_thresh is not None else self.spawn_threshold
         active_idx = model.router.active_mask.nonzero(as_tuple=True)[0]
         mu, log_s, log_alpha = self._get_flat_attrs(model.router)
         alpha = torch.sigmoid(log_alpha[active_idx])
@@ -245,6 +250,7 @@ class ContinuousDensityManager(BaseTopologyManager):
         err_density = model.error_density[active_idx]
         split_mask = (gamma > self.split_gate_threshold) & (err_density > 1e-3)
         
+        num_split = 0
         if split_mask.any():
             free_slots = (~model.router.active_mask).nonzero(as_tuple=True)[0]
             n_available = len(free_slots)
@@ -278,6 +284,39 @@ class ContinuousDensityManager(BaseTopologyManager):
                 # Mark active
                 model.router.active_mask[new_idx] = True
                 
-                return num_pruned, n_split, 0
+                num_split = n_split
         
-        return num_pruned, 0, 0
+        # Spawn in uncovered regions (similar to HeuristicManager)
+        num_spawned = 0
+        if z_samples is not None:
+            free_slots = (~model.router.active_mask).nonzero(as_tuple=True)[0]
+            if len(free_slots) > 0:
+                z_samples = z_samples.to(mu.device)
+                active_idx = model.router.active_mask.nonzero(as_tuple=True)[0]
+                if len(active_idx) > 0:
+                    mu_active = mu[active_idx]
+                    log_s_active = log_s[active_idx]
+                    s_sq = torch.exp(2 * log_s_active) + 1e-5
+                    
+                    diff = z_samples.unsqueeze(1) - mu_active.unsqueeze(0)
+                    mahalanobis_sq = ((diff ** 2) / s_sq).sum(dim=-1)
+                    log_w = log_alpha[active_idx] - 0.5 * mahalanobis_sq
+                    max_log_w, _ = log_w.max(dim=-1)
+                    
+                    uncovered_mask = max_log_w < spawn_thresh
+                    if uncovered_mask.any():
+                        uncovered_z = z_samples[uncovered_mask]
+                        n_spawn = min(len(uncovered_z), len(free_slots), max_spawn_per_call)
+                        if n_spawn > 0:
+                            spawn_idx = free_slots[:n_spawn]
+                            mu.data[spawn_idx] = uncovered_z[:n_spawn]
+                            log_s.data[spawn_idx].fill_(0.0)
+                            log_alpha.data[spawn_idx].fill_(0.0)
+                            model.split_gate.data[spawn_idx] = 0.0
+                            model.activation_density[spawn_idx] = 0.0
+                            model.error_density[spawn_idx] = 0.0
+                            model.router.grad_mu_ema[spawn_idx] = 0
+                            model.router.active_mask[spawn_idx] = True
+                            num_spawned = n_spawn
+        
+        return num_pruned, num_split, num_spawned

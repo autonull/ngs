@@ -102,7 +102,7 @@ def train_mngs(model, train_loader: DataLoader, task_id: int,
                 total_loss += diversity_weight * model.diversity_loss()
             # Split gate regularization for ContinuousDensityManager
             if hasattr(model, 'split_gate') and hasattr(model, 'error_density'):
-                total_loss = total_loss + 0.01 * model.split_gate_loss()
+                total_loss = total_loss + 0.001 * model.split_gate_loss()
             total_loss.backward()
             
             # Update per-unit error density for ContinuousDensityManager
@@ -124,11 +124,26 @@ def train_mngs(model, train_loader: DataLoader, task_id: int,
         if scheduler is not None and epoch >= warmup_epochs:
             scheduler.step()
 
-        # Adaptive density control (split/prune)
+        # Adaptive density control (split/prune/spawn)
         if adapt_every_epoch:
+            # Collect latent samples for spawn decisions (only for monolithic router)
+            z_samples = None
+            if hasattr(model, 'update_unit_errors') and not hasattr(model.router, 'subspace_projectors'):
+                # Use a small batch to estimate latent coverage
+                try:
+                    with torch.no_grad():
+                        sample_batch = next(iter(train_loader))
+                        x = sample_batch[0].view(sample_batch[0].size(0), -1).to(device)
+                        # Get latent representation (after p_down projection)
+                        z_samples = model.p_down(x)
+                except:
+                    pass
+            
             model.adapt_density(
                 split_thresh=split_thresh,
                 prune_thresh=prune_thresh,
+                spawn_thresh=-5.0,
+                z_samples=z_samples,
                 max_spawn_per_call=max_spawn_per_call,
             )
 
@@ -230,6 +245,13 @@ PROFILE_TRAIN_CONFIGS = {
         'adapt_every_epoch': True,
         'kd_weight': 10.0,
     },
+    'cfg_net_lora': {
+        'lr': 1e-3,
+        'split_thresh': 0.02,
+        'prune_thresh': 0.01,
+        'adapt_every_epoch': True,
+        'kd_weight': 10.0,
+    },
     'ultra_edge': {
         'lr': 1e-3,
         'split_thresh': 0.08,
@@ -239,7 +261,7 @@ PROFILE_TRAIN_CONFIGS = {
     },
     'abl_hyper': {
         'lr': 1e-3,
-        'split_thresh': 0.01,
+        'split_thresh': 0.005,
         'prune_thresh': 0.01,
         'adapt_every_epoch': True,
         'kd_weight': 10.0,
@@ -260,7 +282,7 @@ PROFILE_TRAIN_CONFIGS = {
     },
     'abl_hyper_lora': {
         'lr': 1e-3,
-        'split_thresh': 0.01,
+        'split_thresh': 0.005,
         'prune_thresh': 0.01,
         'adapt_every_epoch': True,
         'kd_weight': 10.0,
