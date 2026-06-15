@@ -177,17 +177,10 @@ def get_tinyshakespeare_loaders(
 ) -> Tuple[DataLoader, DataLoader, List[int]]:
     """Unified interface for getting TinyShakespeare task loaders.
     
-    NOTE: Experimental - uses one-hot encoding (input_dim = seq_len * vocab_size = 4160).
-    Training is extremely slow for MLP-based models at this input dimension.
+    Uses seq_len=16 (input_dim=1040) to avoid OOM with one-hot encoding.
     """
-    import warnings
-    warnings.warn(
-        "TinyShakespeare uses one-hot encoding (input_dim=4160). "
-        "Training will be very slow. Consider reducing seq_len or using an embedding layer.",
-        UserWarning
-    )
     n_tasks = kwargs.get('n_tasks', 5)
-    seq_len = kwargs.get('seq_len', 64)
+    seq_len = kwargs.get('seq_len', 16)
     data_dir = kwargs.get('data_dir', './data')
     
     return create_tinyshakespeare_loaders(task_id, n_tasks, seq_len, batch_size, data_dir)

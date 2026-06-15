@@ -87,6 +87,7 @@ EXPERIMENTS = {
         classes_per_task=2,
         input_dim=3072,
         output_dim=10,
+        train=TrainConfig(epochs_per_task=10),
     ),
     'split_cifar100': ExperimentConfig(
         name='Split-CIFAR100',
@@ -96,6 +97,7 @@ EXPERIMENTS = {
         classes_per_task=10,
         input_dim=3072,
         output_dim=100,
+        train=TrainConfig(epochs_per_task=10),
     ),
     'digits': ExperimentConfig(
         name='Digits',
@@ -103,7 +105,7 @@ EXPERIMENTS = {
         scenario='class_incremental',
         n_tasks=5,
         classes_per_task=2,
-        input_dim=64,
+        input_dim=784,
         output_dim=10,
     ),
     'rotated_mnist': ExperimentConfig(
@@ -141,6 +143,7 @@ EXPERIMENTS = {
         classes_per_task=5,
         input_dim=3072,
         output_dim=100,
+        train=TrainConfig(epochs_per_task=10),
     ),
     'full_mnist': ExperimentConfig(
         name='Full-MNIST',
@@ -157,8 +160,9 @@ EXPERIMENTS = {
         scenario='class_incremental',
         n_tasks=5,
         classes_per_task=65,  # full vocab each task
-        input_dim=4160,  # seq_len * vocab_size = 64 * 65
+        input_dim=1040,  # seq_len=16 * vocab_size=65 (reduced from 64*65=4160 to avoid OOM)
         output_dim=65,  # vocab size
+        train=TrainConfig(epochs_per_task=5, batch_size=64),
     ),
 }
 
