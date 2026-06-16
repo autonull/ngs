@@ -1,4 +1,4 @@
-# MNGS (Modular Neural Gaussian System)
+# NGS (Neural Gaussian System)
 
 **A modular framework for adaptive, differentiable neural representations — built from the ground up on Gaussian mixture principles.**
 
@@ -6,9 +6,9 @@
 
 ## The Core Idea: Neural Gaussian Splatting
 
-Gaussian Splatting revolutionized 3D reconstruction by representing scenes as **adaptive, differentiable Gaussians** instead of fixed meshes. MNGS brings the same philosophy to neural computation:
+Gaussian Splatting revolutionized 3D reconstruction by representing scenes as **adaptive, differentiable Gaussians** instead of fixed meshes. NGS brings the same philosophy to neural computation:
 
-| 3D Gaussian Splatting | MNGS (Neural Gaussian System) |
+| 3D Gaussian Splatting | NGS (Neural Gaussian System) |
 |----------------------|-------------------------------|
 | Scene = mixture of 3D Gaussians | Representation = mixture of neural Gaussians in latent space |
 | Each Gaussian: position, scale, rotation, opacity | Each unit: mean, scale, activation, adapter weights |
@@ -22,8 +22,8 @@ Gaussian Splatting revolutionized 3D reconstruction by representing scenes as **
 
 ## Relation to Foundational Theories
 
-| Theory / Method | Core Idea | MNGS Connection |
-|-----------------|-----------|-----------------|
+| Theory / Method | Core Idea | NGS Connection |
+|-----------------|-----------|----------------|
 | **Adaptive Resonance Theory (ART)** | Stability-plasticity via vigilance; new categories form on mismatch | **Continuous split gates** = differentiable vigilance; topology control = category formation |
 | **Mixture of Experts (MoE)** | Sparse routing to specialized experts | **Factorized routing** = structured MoE with Gaussian similarity |
 | **Gaussian Processes** | Non-parametric, uncertainty-aware | Neural Gaussians = **amortized, parametric GP** with learned similarity |
@@ -32,138 +32,136 @@ Gaussian Splatting revolutionized 3D reconstruction by representing scenes as **
 | **Progressive Neural Networks** | Add columns for new tasks | **Dynamic unit growth** = fine-grained, data-driven columns |
 | **Radial Basis Function Networks** | Local receptive fields | Neural Gaussians = **learned, adaptive RBFs** with routing |
 
-**MNGS unifies these ideas**: Gaussian representations + adaptive topology + factorized routing + hypernetwork storage = a **modular, differentiable, scalable** adaptive system.
+**NGS unifies these ideas**: Gaussian representations + adaptive topology + factorized routing + hypernetwork storage = a **modular, differentiable, scalable** adaptive system.
 
 ---
 
 ## Modular Architecture: Four Swappable Strategies
 
-MNGS decouples adaptive neural computation into four independent dimensions:
+NGS decouples adaptive neural computation into four independent dimensions:
 
-| Strategy | Options | cfg_net Default | Design Principle |
-|----------|---------|-----------------|------------------|
-| **Routing** | Monolithic / **Factorized** / LSH | **Factorized** | Project to subspaces, route independently → sub-linear cost, better coverage |
-| **Parameter Storage** | Direct Adapters / **Hypernetwork** | **Hypernetwork** | Generate adapters from compact codes → parameter efficiency |
-| **Topology Control** | Heuristic / **Continuous Density** | **Continuous Density** | Learnable split gates → differentiable, gradient-based growth |
-| **Memory Management** | Pre-allocated / Strict Capacity | Pre-allocated | Masked activation → no reallocation overhead |
+| Strategy | Options | Default | Design Principle |
+|----------|---------|---------|------------------|
+| **Routing** | Monolithic / **Factorized** / Hierarchical / Gaussian Attention / LSH | **Factorized** | Project to subspaces, route independently → sub-linear cost, better coverage |
+| **Parameter Storage** | Direct Adapters / **Hypernetwork** / LoRA | **Hypernetwork** | Generate adapters from compact codes → parameter efficiency |
+| **Topology Control** | Heuristic / **Continuous Density** / Merge-Aware / Meta-Learned | **Continuous Density** | Learnable split gates → differentiable, gradient-based growth |
+| **Memory Management** | Pre-allocated / Dynamic / Strict Capacity | Pre-allocated | Masked activation → no reallocation overhead |
 
-**The winning combination**: Factorized routing + Continuous density topology = **sub-linear routing + differentiable growth** = scalable, stable adaptation.
+**3 × 3 × 3 × 3 = 81 configurations** — all swappable via config, no code changes.
 
 ---
 
-## One Major Application: Continual Learning
+## Applications
 
-MNGS was first validated on continual learning, where it solves the **domain-incremental** problem that has stumped the field:
+### 1. Continual Learning (Primary Validation)
+NGS solves the **domain-incremental** problem that has stumped the field:
 
-| Problem Type | Description | MNGS Result |
-|--------------|-------------|-------------|
+| Problem Type | Description | NGS Result |
+|--------------|-------------|------------|
 | **Class-incremental** | New classes arrive; input distribution fixed | Competitive with strong baselines |
 | **Domain-incremental** | Same task; input distribution SHIFTS (rotation, permutation, noise, blur) | **First method to solve this** — maintains performance where all baselines collapse |
 | **Task-incremental** | Disjoint tasks with explicit boundaries | Supported via modular routing |
 
-**Why it works**: Factorized routing isolates shift to relevant subspaces; continuous density topology adapts locally without global forgetting; hypernetwork storage enables parameter-efficient specialization.
+### 2. Density Estimation & Generative Modeling
+Neural Gaussians = tractable, scalable mixture models with adaptive components (2D toy densities, flow matching).
 
----
+### 3. Few-Shot / Meta-Learning
+Fast adaptation via topology growth; hypernetwork generates task-specific adapters (Omniglot, miniImageNet).
 
-## Potential Application Areas (Beyond Continual Learning)
+### 4. Reinforcement Learning
+Non-stationary environments → continuous topology adaptation; factorized routing for multi-task (CartPole, MinAtar).
 
-The Neural Gaussian representation is a **general-purpose adaptive substrate**. Other promising directions:
-
-| Area | How MNGS Helps |
-|------|----------------|
-| **Density Estimation & Generative Modeling** | Neural Gaussians = tractable, scalable mixture models with adaptive components |
-| **Few-Shot / Meta-Learning** | Fast adaptation via topology growth; hypernetwork generates task-specific adapters |
-| **Reinforcement Learning** | Non-stationary environments → continuous topology adaptation; factorized routing for multi-task |
-| **Anomaly Detection** | Gaussian activation patterns naturally flag out-of-distribution inputs |
-| **Time-Series & Sensor Fusion** | Streaming adaptation to sensor drift, regime change, missing modalities |
-| **Federated / Decentralized Learning** | Hypernetwork codes compress client updates; factorized routing isolates client-specific factors |
-| **Neural Architecture Search** | Topology control = differentiable architecture evolution |
-| **Robotics & Sim-to-Real** | Continuous adaptation to dynamics/visual shift; factorized routing isolates domain factors |
-| **Edge / Low-Resource Deployment** | LoRA-efficient profiles (190K params); factorized routing = sub-linear inference |
-
----
-
-## Experiment Process Overview
-
-MNGS includes a production-grade experiment runner (`runner_v2.py`) designed for reproducible, large-scale evaluation:
-
-```
-1. SMOKE TEST (10 min)
-   python experiments/runner_v2.py --phase mngs_pm --fast
-   # 11 datasets × 3 profiles × 1 epoch × 1 seed
-
-2. FULL VALIDATION (2-3 hrs, resumable)
-   python experiments/runner_v2.py --phase mngs_pm
-   # 11 datasets × 3 profiles × 3 seeds × 2 epochs
-   python experiments/runner_v2.py --phase baselines
-   python experiments/runner_v2.py --phase mngs_lora
-
-3. ANALYSIS
-   python quick_summary.py          # Live dashboard
-   python experiments/ablation.py   # Component ablations
-   python experiments/hpo.py        # Hyperparameter search
-   python experiments/report.py     # Paper figures/tables
-```
-
-**Runner features**: Resumable checkpointing, round-robin sweep, skip-existing, live ETA, phase presets.
+### 5. Federated / Decentralized Learning
+Hypernetwork codes compress client updates; factorized routing isolates client-specific factors.
 
 ---
 
 ## Quick Start
 
 ```bash
-# Smoke test (10 min)
-python experiments/runner_v2.py --phase mngs_pm --fast
+# Install dependencies
+pip install -r requirements.txt
 
-# Full validation (resumable)
-python experiments/runner_v2.py --phase mngs_pm
-python experiments/runner_v2.py --phase baselines
-python experiments/runner_v2.py --phase mngs_lora
+# Smoke test (verify core library)
+python -c "
+from ngs.core.interfaces import NGSConfig
+from ngs.models.ngs import build_ngs
+import torch
+cfg = NGSConfig(max_k=64, k_init=16)
+m = build_ngs(784, 10, cfg)
+x = torch.randn(8, 784)
+out = m(x)
+print('Forward OK:', out.logits.shape, 'K=', m.K)
+"
 
-# Live results
-python quick_summary.py
+# Density estimation demo
+python examples/train_density.py --dataset moons --epochs 200
+
+# Few-shot learning
+python examples/train_fewshot.py --dataset omniglot --n-way 5 --k-shot 1 --epochs 10
+
+# Continual learning
+python examples/train_cl.py --experiment split_mnist --seeds 42
+
+# RL with domain shift
+python examples/train_rl.py --env CartPole-v1 --domain-shift gravity
+
+# Ablation framework
+python -m ngs.benchmarks.ablation --task split_mnist --quick
+
+# Run tests
+pytest tests/ -v
 ```
 
 ---
 
-## System Architecture
+## Configuration
 
-```
-mngs/
-├── model.py              # MNGS main class
-├── profiles.py           # 6 profiles (3 param-matched + 3 LoRA)
-├── core/config.py        # Strategy enums + MNGSConfig
-├── modules/
-│   ├── routers.py        # Monolithic / Factorized / LSH
-│   ├── parameter_stores.py   # DirectAdapter / Hypernetwork
-│   └── topology_managers.py  # Heuristic / ContinuousDensity
+All experiments configured via `NGSConfig` dataclass or YAML files in `configs/`:
 
-experiments/
-├── runner_v2.py          # Resumable, checkpointed runner
-├── mngs_trainer.py       # KD + replay + adaptive density
-├── config.py             # 11 dataset configurations
-└── quick_summary.py      # Live results dashboard
+```python
+from ngs.core.interfaces import NGSConfig, RoutingStrategy
+
+config = NGSConfig(
+    latent_dim=32,
+    k_init=128,
+    max_k=512,
+    top_k=8,
+    routing=RoutingStrategy.FACTORIZED,
+    parameter_storage=ParameterStorage.HYPERNETWORK,
+    topology_control=TopologyControl.CONTINUOUS_DENSITY,
+    memory_management=MemoryManagement.PRE_ALLOCATED,
+    # Strategy-specific params
+    num_subspaces=4,
+    hypernetwork_code_dim=8,
+    use_lora=True,
+    lora_rank=4,
+    split_threshold=0.05,
+    merge_threshold=0.1,
+)
 ```
 
 ---
 
-## Current Status
+## Reproducibility
 
-- ✅ **Continual learning validated** — domain-incremental solved; strong class-incremental baselines
-- ✅ **Modular framework working** — all 4 strategy dimensions swappable
-- ✅ **Robust experiment runner** — resumable, checkpointed, round-robin
-- 🔄 **CIFAR tuning** — 10-epoch configs ready
-- 🔄 **TinyShakespeare** — embedding layer needed
-- 🔄 **MNGS ablation tools** — component analysis in progress
-- 🔄 **Broader applications** — RL, meta-learning, density estimation prototypes in progress
+All benchmarks support multi-seed runs with deterministic behavior:
+
+```bash
+# Run with multiple seeds
+python examples/train_cl.py --experiment split_mnist --seeds 42 123 456
+
+# Results include mean ± std across seeds
+# Saved to ./results/split_mnist_aggregated.json
+```
 
 ---
 
 ## Citation
 
 ```bibtex
-@article{mngs2024,
-  title={Modular Neural Gaussian System: Factorized Routing and Continuous Density Topology for Adaptive Neural Representations},
+@article{ngs2024,
+  title={Neural Gaussian Systems: Modular Adaptive Representations with Factorized Routing and Continuous Density Topology},
   author={...},
   year={2024}
 }
@@ -171,4 +169,4 @@ experiments/
 
 ---
 
-**MNGS: A new primitive for adaptive neural computation — where representations grow, specialize, and adapt like Gaussian splats in N-D space.**
+**NGS: A new primitive for adaptive neural computation — where representations grow, specialize, and adapt like Gaussian splats in N-D space.**
