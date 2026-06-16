@@ -140,12 +140,10 @@ This is positioned to extract **maximum leverage** from the core insight. Let's 
 
 ----
 
-### Project NEBULA: Neural Ecosystems via Biologically-inspired Unbounded Learning Architectures
-
 **Executive Vision**
 Current deep learning models are "frozen statues"—brilliant but brittle, incapable of true adaptation without catastrophic forgetting. The **mNGS (Modular Neural Gaussian System)** introduces "liquid intelligence" by treating knowledge as a dynamic mixture of local experts (Neural Gaussians) that can grow, merge, and route information sub-linearly. 
 
-This R&D plan, **Project NEBULA**, is designed to extract maximum theoretical, practical, and commercial value from mNGS. It pushes the framework beyond a continual learning tool into a universal substrate for AGI, focusing on **Novelty** (unconventional applications), **Elegance** (mathematical and biological purity), and **Power** (hardware-scale efficiency).
+This R&D plan is designed to extract maximum theoretical, practical, and commercial value from mNGS. It pushes the framework beyond a continual learning tool into a universal substrate for AGI, focusing on **Novelty** (unconventional applications), **Elegance** (mathematical and biological purity), and **Power** (hardware-scale efficiency).
 
 ---
 

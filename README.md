@@ -171,4 +171,4 @@ experiments/
 
 ---
 
-**MNGS: A new primitive for adaptive neural computation — where representations grow, specialize, and adapt like Gaussian splats in 3D space.**
+**MNGS: A new primitive for adaptive neural computation — where representations grow, specialize, and adapt like Gaussian splats in N-D space.**
