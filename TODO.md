@@ -183,3 +183,108 @@
 - **mngs/** has working implementations for topology managers, model, trainer
 - **Strategy**: Port working mngs/ implementations to ngs/ with updated interfaces
 - **End goal**: Single `ngs/` package; `mngs/` becomes deprecated alias or removed
+
+---
+
+## Critical Bug Fixes Needed (from historic TODO)
+
+### 1. entropy_loss UnboundLocalError (`ngs/models/ngs.py` - to be created)
+```python
+def entropy_loss(self, x: Optional[torch.Tensor] = None) -> torch.Tensor:
+    if x is not None:
+        z = self.p_down(x)
+    elif self._last_routing_output is not None:
+        z = self._last_routing_output.latent  # Use cached latent
+    else:
+        return torch.tensor(0.0, device=self.p_down.weight.device)
+    routing = self.router(z)
+    ...
+```
+
+### 2. Topology Manager Tensor Size Mismatch
+**Issue**: `z_samples` has latent_dim (e.g., 32) but `mu_active` only has active units (e.g., 4).
+**Fix**: Project z_samples to active unit subspace or expand mu_active to match latent_dim.
+```python
+# In adapt_topology methods:
+mu_active = self._get_active_mu(model.router)  # Returns [n_active, latent_dim]
+# Ensure mu_active has same latent_dim as z_samples
+```
+
+### 3. Hierarchical Router IndexError
+**Location**: Line ~343 in mngs version: `combined_idx[final_rel]` out of bounds
+**Cause**: `top_k_factorized` or `fine_units_per_coarse` misconfiguration
+**Fix**: Validate index bounds before access
+
+### 4. TrainerConfig API Naming
+**Issue**: `TrainConfig` vs `TrainerConfig` inconsistency
+**Fix**: Use `TrainerConfig` consistently across `ngs/training/trainer.py` and all imports
+
+---
+
+## Integration with Existing mngs/ Codebase (Reusable Components)
+
+| Component | Source | Reuse Strategy |
+|-----------|--------|----------------|
+| Data loaders | `experiments/datasets.py` | Direct reuse - same interface |
+| Replay buffer | `experiments/datasets.ReplayBuffer` | Direct reuse |
+| Metrics | `experiments/metrics.py` (ACC, BWT, FWT, LA) | Direct reuse |
+| Runner | `experiments/runner_v2.py` | Port to new `ngs/` API |
+| Profiles | `mngs/profiles.py` | Map → `NGSConfig` presets |
+| Backbones | `experiments/backbones.py` | CNN/ViT feature extractors |
+
+---
+
+## Implementation Notes for Remaining Work
+
+### Topology Managers (Port from mngs + add MergeAware, MetaLearned)
+- **HeuristicManager**: Copy from `mngs/modules/topology_managers.py`, adapt to `ngs/core/interfaces.BaseTopologyManager`
+- **ContinuousDensityManager**: Copy from mngs, add split-gate integration
+- **MergeAwareManager**: NEW - cosine similarity on full covariance (means + scales), merge when overlap > threshold
+- **MetaLearnedManager**: NEW - meta-learning over topology actions (split/prune/merge/spawn as RL actions)
+
+### Memory Managers (All NEW)
+- **PreAllocatedManager**: Fixed buffer, mask unused units
+- **DynamicManager**: Expand buffers on demand, track utilization
+- **StrictCapacityManager**: Hard capacity limit, evict LRU/LRU when full
+
+### Unified NGSModel (`ngs/models/ngs.py`)
+- Combine: Router + ParameterStore + TopologyManager + MemoryManager
+- Methods: `forward()`, `adapt_topology()`, `compute_topology_losses()`, `entropy_loss()`, `expand_capacity()`
+- Follow `mngs/model.py` structure but with new interfaces
+
+### Training Framework (`ngs/training/trainer.py`)
+- Port from `mngs/training/trainer.py`
+- Add: Knowledge distillation, replay buffer integration, callbacks
+- Config: `TrainerConfig` (not `TrainConfig`)
+
+---
+
+## Potential Pitfalls to Avoid
+1. **Split gate collapse**: All gates → 0 or 1; add entropy regularization
+2. **Merge oscillations**: Units merge then immediately split; add hysteresis
+3. **Subspace collapse**: Factorized router subspaces become redundant; add orthogonality loss
+4. **Hypernetwork overfitting**: Small code_dim leads to underfitting; monitor train/val gap
+5. **Gradient explosion**: Mahalanobis with small scales; clamp `log_s` min=-5
+6. **Dead units**: Units never routed to; spawn mechanism must work reliably
+7. **Catastrophic forgetting in hypernetwork**: KD on generated weights needed
+
+---
+
+## Next Session Startup Commands
+```bash
+cd /home/me/ngs
+# Verify core library imports
+python -c "from ngs.core.interfaces import *; from ngs.modules.routers import *; from ngs.modules.parameter_stores import *; from ngs.modules.topology_managers import *; from ngs.modules.memory_managers import *; from ngs.models.ngs import *; from ngs.training.trainer import *; print('All imports OK')"
+
+# Run smoke test
+python -c "
+import torch
+from ngs.core.interfaces import NGSConfig
+from ngs.models.ngs import build_ngs
+cfg = NGSConfig(max_k=64, k_init=16)
+m = build_ngs(784, 10, cfg)
+x = torch.randn(8, 784)
+out = m(x)
+print('Forward OK:', out.logits.shape, 'K=', m.K)
+"
+```
