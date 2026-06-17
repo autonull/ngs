@@ -1,38 +1,61 @@
-"""Neural Gaussian Systems (NGS) - Modular Adaptive Neural Networks.
+"""Neural Gaussian Systems (NGS) - Modular Adaptive Neural Networks."""
 
-This is the new clean API namespace for NGS, re-exporting from the mngs implementation.
-"""
-
-from mngs.core.config import (
-    MNGSConfig as NGSConfig,
+from ngs.core.interfaces import (
+    NGSConfig,
     RoutingStrategy,
     ParameterStorage,
     TopologyControl,
     MemoryManagement,
+    RoutingOutput,
+    TopologyAction,
 )
-from mngs.model import MNGS as NGSModel, build_mngs as build_ngs
-from mngs.modules.routers import (
+from ngs.models.ngs import NGSModel, build_ngs
+from ngs.modules.routers import (
     MonolithicRouter,
     FactorizedRouter,
     LSRRouter,
+    HierarchicalRouter,
+    GaussianAttentionRouter,
+    UncertaintyAwareRouter,
     build_router,
+    BaseRouter,
 )
-from mngs.modules.parameter_stores import (
+from ngs.modules.parameter_stores import (
     DirectAdapterStore,
     HypernetworkStore,
+    LoRAStore,
     build_parameter_store,
+    BaseParameterStore,
 )
-from mngs.modules.topology_managers import (
+from ngs.modules.topology_managers import (
     HeuristicManager,
     ContinuousDensityManager,
+    MergeAwareManager,
+    MetaLearnedManager,
     build_topology_manager,
+    BaseTopologyManager,
 )
-from mngs.training.trainer import (
+from ngs.modules.memory_managers import (
+    PreAllocatedManager,
+    DynamicManager,
+    StrictCapacityManager,
+    build_memory_manager,
+    BaseMemoryManager,
+)
+from ngs.training.trainer import (
     NGSTrainer,
-    ContinualTrainer,
-    TrainConfig,
     TrainerConfig,
-    create_trainer,
+)
+from ngs.visualization.visualize import (
+    plot_topology_dynamics,
+    plot_routing_heatmap,
+    plot_3d_gaussian_means,
+    plot_uncertainty_calibration,
+    plot_evolution_gif,
+    plot_subspace_alignment,
+    plot_hypernetwork_codes,
+    plot_riemannian_geodesics,
+    interactive_dashboard,
 )
 
 __all__ = [
@@ -41,23 +64,45 @@ __all__ = [
     "ParameterStorage",
     "TopologyControl",
     "MemoryManagement",
+    "RoutingOutput",
+    "TopologyAction",
     "NGSModel",
     "build_ngs",
     "MonolithicRouter",
     "FactorizedRouter",
     "LSRRouter",
+    "HierarchicalRouter",
+    "GaussianAttentionRouter",
+    "UncertaintyAwareRouter",
     "build_router",
+    "BaseRouter",
     "DirectAdapterStore",
     "HypernetworkStore",
+    "LoRAStore",
     "build_parameter_store",
+    "BaseParameterStore",
     "HeuristicManager",
     "ContinuousDensityManager",
+    "MergeAwareManager",
+    "MetaLearnedManager",
     "build_topology_manager",
+    "BaseTopologyManager",
+    "PreAllocatedManager",
+    "DynamicManager",
+    "StrictCapacityManager",
+    "build_memory_manager",
+    "BaseMemoryManager",
     "NGSTrainer",
-    "ContinualTrainer",
-    "TrainConfig",
     "TrainerConfig",
-    "create_trainer",
+    "plot_topology_dynamics",
+    "plot_routing_heatmap",
+    "plot_3d_gaussian_means",
+    "plot_uncertainty_calibration",
+    "plot_evolution_gif",
+    "plot_subspace_alignment",
+    "plot_hypernetwork_codes",
+    "plot_riemannian_geodesics",
+    "interactive_dashboard",
 ]
 
 # Version

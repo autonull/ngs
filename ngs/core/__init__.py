@@ -1,11 +1,17 @@
 """Core configuration and interfaces for NGS."""
 
-from mngs.core.config import (
-    MNGSConfig as NGSConfig,
+from ngs.core.interfaces import (
+    NGSConfig,
     RoutingStrategy,
     ParameterStorage,
     TopologyControl,
     MemoryManagement,
+    RoutingOutput,
+    TopologyAction,
+    BaseRouter,
+    BaseParameterStore,
+    BaseTopologyManager,
+    BaseMemoryManager,
 )
 
 __all__ = [
@@ -14,4 +20,10 @@ __all__ = [
     "ParameterStorage",
     "TopologyControl",
     "MemoryManagement",
+    "RoutingOutput",
+    "TopologyAction",
+    "BaseRouter",
+    "BaseParameterStore",
+    "BaseTopologyManager",
+    "BaseMemoryManager",
 ]

@@ -11,7 +11,7 @@ import json
 
 from ngs.core import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
 from ngs.models import build_ngs
-from ngs.training import NGSTrainer, TrainConfig
+from ngs.training import NGSTrainer, TrainerConfig
 
 
 class NGSRLPolicy(nn.Module):

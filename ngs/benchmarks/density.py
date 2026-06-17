@@ -12,7 +12,7 @@ import json
 
 from ngs.core import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
 from ngs.models import build_ngs
-from ngs.training import NGSTrainer, TrainConfig
+from ngs.training import NGSTrainer, TrainerConfig
 
 
 def generate_toy_data(dataset: str, n_samples: int = 2000, noise: float = 0.1) -> torch.Tensor:
@@ -114,7 +114,7 @@ def run_density_benchmark(
     
     model = build_ngs(2, 10, config).to(device)
     
-    trainer_config = TrainConfig(
+    trainer_config = TrainerConfig(
         lr=lr,
         epochs=1,
         batch_size=batch_size,

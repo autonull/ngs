@@ -30,7 +30,7 @@ def run_online_cl_benchmark(
 
     from ngs.core import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
     from ngs.models import build_ngs
-    from ngs.training import NGSTrainer, TrainConfig
+    from ngs.training import NGSTrainer, TrainerConfig
     from experiments.datasets import get_task_loaders, ReplayBuffer
     from experiments.metrics import evaluate_model_on_task
 
@@ -52,7 +52,7 @@ def run_online_cl_benchmark(
 
     model = build_ngs(784, 10, config).to(device)
 
-    trainer_config = TrainConfig(
+    trainer_config = TrainerConfig(
         lr=lr,
         epochs=epochs_per_task,
         batch_size=batch_size,

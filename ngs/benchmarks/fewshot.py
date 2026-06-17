@@ -10,7 +10,7 @@ import json
 
 from ngs.core import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
 from ngs.models import build_ngs
-from ngs.training import NGSTrainer, TrainConfig
+from ngs.training import NGSTrainer, TrainerConfig
 
 
 def generate_omniglot_tasks(n_way: int, k_shot: int, n_tasks: int, n_query: int = 15) -> tuple:

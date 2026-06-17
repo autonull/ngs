@@ -1,9 +1,8 @@
 """Training framework for NGS."""
 
-from mngs.training.trainer import (
+from ngs.training.trainer import (
     NGSTrainer,
     ContinualTrainer,
-    TrainConfig,
     TrainerConfig,
     create_trainer,
     TrainMetrics,
@@ -12,7 +11,6 @@ from mngs.training.trainer import (
 __all__ = [
     "NGSTrainer",
     "ContinualTrainer",
-    "TrainConfig",
     "TrainerConfig",
     "create_trainer",
     "TrainMetrics",

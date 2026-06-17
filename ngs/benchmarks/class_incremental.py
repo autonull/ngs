@@ -72,7 +72,7 @@ def run_class_incremental_benchmark(
 
     from ngs.core import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
     from ngs.models import build_ngs
-    from ngs.training import NGSTrainer, TrainConfig
+    from ngs.training import NGSTrainer, TrainerConfig
 
     # Sort classes for incremental order
     all_classes = list(range(n_classes))
@@ -98,7 +98,7 @@ def run_class_incremental_benchmark(
 
     model = build_ngs(d_in, n_classes, config).to(device)
 
-    trainer_config = TrainConfig(
+    trainer_config = TrainerConfig(
         lr=lr,
         epochs=epochs_per_task,
         batch_size=batch_size,
