@@ -4,7 +4,7 @@ Train NGS for RL on CartPole with domain randomization.
 """
 
 import argparse
-from ngs.benchmarks.rl import run_rl_benchmark
+from ngs.benchmarks import run_rl_benchmark
 
 
 def main():

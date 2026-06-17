@@ -74,7 +74,7 @@ def run_split_mnist(args, config, device):
         device=device,
     )
     
-    trainer = NGSTrainer(model, trainer_config)
+    trainer = NGSTrainer(model, trainer_config, device=device)
     replay_buffer = ReplayBuffer(max_size=args.replay_size) if args.replay_size > 0 else None
     
     accuracy_matrix = np.zeros((n_tasks, n_tasks))
@@ -146,7 +146,7 @@ def run_permuted_mnist(args, config, device):
         device=device,
     )
     
-    trainer = NGSTrainer(model, trainer_config)
+    trainer = NGSTrainer(model, trainer_config, device=device)
     replay_buffer = ReplayBuffer(max_size=args.replay_size) if args.replay_size > 0 else None
     permuted = PermutedMNIST(n_tasks=n_tasks, seed=args.seed)
     
@@ -206,7 +206,7 @@ def run_split_cifar100(args, config, device):
     config.max_k = args.max_k
     config.top_k = args.top_k
     
-    model = build_ngs(d_in, d_out, config).to(device)
+    model = build_mngs(d_in, d_out, config).to(device)
     
     trainer_config = TrainerConfig(
         lr=args.lr,
@@ -220,7 +220,7 @@ def run_split_cifar100(args, config, device):
         device=device,
     )
     
-    trainer = NGSTrainer(model, trainer_config)
+    trainer = NGSTrainer(model, trainer_config, device=device)
     replay_buffer = ReplayBuffer(max_size=args.replay_size) if args.replay_size > 0 else None
     
     accuracy_matrix = np.zeros((n_tasks, n_tasks))

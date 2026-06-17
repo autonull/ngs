@@ -10,7 +10,7 @@ from pathlib import Path
 import json
 import matplotlib.pyplot as plt
 
-from ngs.benchmarks.density import run_density_benchmark
+from ngs.benchmarks import run_density_benchmark
 
 
 def main():

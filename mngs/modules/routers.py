@@ -326,3 +326,44 @@ class LSRRouter(BaseRouter):
         topk_weights = F.softmax(topk_vals, dim=-1)
         
         return topk_idx, topk_weights
+
+
+def build_router(config, d_latent: int = None, max_k: int = None, top_k: int = None):
+    """Factory function to build router from config."""
+    from mngs.core.config import RoutingStrategy
+    
+    routing = config.routing if hasattr(config, 'routing') else config
+    max_k = max_k or config.max_k
+    d_latent = d_latent or config.latent_dim
+    top_k = top_k or config.top_k
+    tau = getattr(config, 'tau', 1.0)
+    ema_decay = getattr(config, 'ema_decay', 0.99)
+    
+    if routing == RoutingStrategy.MONOLITHIC_MAHALANOBIS:
+        return MonolithicRouter(
+            max_k=max_k,
+            d_latent=d_latent,
+            top_k=top_k,
+            tau=tau,
+            ema_decay=ema_decay
+        )
+    elif routing == RoutingStrategy.FACTORIZED_SUBSPACE:
+        num_subspaces = getattr(config, 'num_subspaces', 4)
+        units_per_space = max_k // num_subspaces
+        top_k_factorized = getattr(config, 'top_k_factorized', 2)
+        return FactorizedRouter(
+            d_latent=d_latent,
+            num_subspaces=num_subspaces,
+            units_per_space=units_per_space,
+            top_k=top_k_factorized,
+            tau=tau
+        )
+    elif routing == RoutingStrategy.LSH_APPROXIMATE:
+        return LSRRouter(
+            d_latent=d_latent,
+            num_buckets=max_k // 4,
+            num_hash_functions=4,
+            top_k=top_k
+        )
+    else:
+        raise ValueError(f"Unknown routing strategy: {routing}")

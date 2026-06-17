@@ -3,7 +3,8 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Tuple, Union, Dict
+from typing import List, Tuple, Union, Dict, Optional
+from types import SimpleNamespace
 
 from mngs.core.config import MNGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
 from mngs.modules.routers import MonolithicRouter, FactorizedRouter, LSRRouter
@@ -46,6 +47,9 @@ class MNGS(nn.Module):
         
         # Topology Manager (topology control strategy)
         self.topology_manager = self._build_topology_manager()
+        
+        # Cached routing output for entropy_loss
+        self._last_routing_output = None
         
         # Memory management strategy
         self.memory_management = config.memory_management
@@ -195,6 +199,9 @@ class MNGS(nn.Module):
         # Route to active units
         routing_output = self.router(z)
         
+        # Cache routing output for entropy_loss
+        self._last_routing_output = SimpleNamespace(latent=z, indices=None, weights=None)
+        
         if isinstance(routing_output, tuple) and len(routing_output) == 2:
             if isinstance(routing_output[0], list):
                 # Factorized routing: list of subspace indices and weights
@@ -205,12 +212,16 @@ class MNGS(nn.Module):
                 flat_weights = torch.cat(subspace_weights, dim=1)
                 self._last_active_indices = flat_indices
                 self._last_routing_weights = flat_weights
+                self._last_routing_output.indices = flat_indices
+                self._last_routing_output.weights = flat_weights
             else:
                 # Standard routing: [B, K] indices and weights
                 active_indices, routing_weights = routing_output
                 out = self._forward_standard(z, active_indices, routing_weights)
                 self._last_active_indices = active_indices
                 self._last_routing_weights = routing_weights
+                self._last_routing_output.indices = active_indices
+                self._last_routing_output.weights = routing_weights
         else:
             raise ValueError(f"Unexpected routing output format: {type(routing_output)}")
         
@@ -275,9 +286,14 @@ class MNGS(nn.Module):
         
         return self.p_up(combined + self.gamma * z)
     
-    def entropy_loss(self, x: torch.Tensor) -> torch.Tensor:
+    def entropy_loss(self, x: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Compute entropy regularization loss."""
-        z = self.p_down(x)
+        if x is not None:
+            z = self.p_down(x)
+        elif self._last_routing_output is not None:
+            z = self._last_routing_output.latent  # Use cached latent
+        else:
+            return torch.tensor(0.0, device=self.p_down.weight.device)
         routing_output = self.router(z)
         
         # Determine if factorized or monolithic routing

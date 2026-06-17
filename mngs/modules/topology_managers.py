@@ -318,5 +318,40 @@ class ContinuousDensityManager(BaseTopologyManager):
                             model.router.grad_mu_ema[spawn_idx] = 0
                             model.router.active_mask[spawn_idx] = True
                             num_spawned = n_spawn
-        
+            
         return num_pruned, num_split, num_spawned
+
+
+def build_topology_manager(config):
+    """Factory function to build topology manager from config."""
+    from mngs.core.config import TopologyControl
+    
+    topology = config.topology_control if hasattr(config, 'topology_control') else config
+    
+    split_threshold = getattr(config, 'split_threshold', 0.05)
+    prune_threshold = getattr(config, 'prune_threshold', 0.01)
+    ema_decay = getattr(config, 'ema_decay', 0.99)
+    density_decay = getattr(config, 'ema_decay', 0.99)
+    split_gate_threshold = 0.65
+    spawn_threshold = -5.0
+    noise_std = 0.01
+    
+    if topology == TopologyControl.DISCRETE_HEURISTIC:
+        return HeuristicManager(
+            split_threshold=split_threshold,
+            prune_threshold=prune_threshold,
+            split_scale=0.5,
+            noise_std=noise_std,
+            ema_decay=ema_decay
+        )
+    elif topology == TopologyControl.CONTINUOUS_DENSITY:
+        return ContinuousDensityManager(
+            split_threshold=split_threshold,
+            prune_threshold=prune_threshold,
+            density_decay=density_decay,
+            split_gate_threshold=split_gate_threshold,
+            spawn_threshold=spawn_threshold,
+            noise_std=noise_std
+        )
+    else:
+        raise ValueError(f"Unknown topology control: {topology}")

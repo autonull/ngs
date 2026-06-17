@@ -26,7 +26,6 @@ class TestContinualLearning:
             lr=1e-3,
             epochs=1,
             batch_size=64,
-            replay_size=5000,
             replay_ratio=1.0,
             kd_weight=5.0,
         )
@@ -49,7 +48,7 @@ class TestContinualLearning:
             trainer.train_epoch(train_loader, replay_buffer=replay_buffer, old_model=old_model)
 
             # Evaluate
-            acc = evaluate_model_on_task(model, test_loader, trainer.config.device)
+            acc = evaluate_model_on_task(model, test_loader, trainer.device)
             assert 0 <= acc <= 1
 
             # Update replay
@@ -86,7 +85,7 @@ class TestContinualLearning:
         # Task 0
         train_loader, test_loader, _ = get_task_loaders('split_mnist', 0, 2, 64)
         trainer.train_epoch(train_loader)
-        acc_task0_after_0 = evaluate_model_on_task(model, test_loader, trainer.config.device)
+        acc_task0_after_0 = evaluate_model_on_task(model, test_loader, trainer.device)
 
         # Save old model
         old_model = copy.deepcopy(model)
@@ -100,7 +99,7 @@ class TestContinualLearning:
 
         # Evaluate on task 0 again
         _, test_loader_0, _ = get_task_loaders('split_mnist', 0, 2, 64)
-        acc_task0_after_1 = evaluate_model_on_task(model, test_loader_0, trainer.config.device)
+        acc_task0_after_1 = evaluate_model_on_task(model, test_loader_0, trainer.device)
 
         # With KD, forgetting should be limited
         forgetting = acc_task0_after_0 - acc_task0_after_1
@@ -115,7 +114,6 @@ class TestContinualLearning:
             lr=1e-3,
             epochs=1,
             batch_size=64,
-            replay_size=2000,
             replay_ratio=1.0,
         )
 
@@ -136,7 +134,7 @@ class TestContinualLearning:
             y_onehot = F.one_hot(y, num_classes=10).float()
             replay_buffer.add(x_flat, y_onehot)
 
-        acc_task0 = evaluate_model_on_task(model, test_loader, trainer.config.device)
+        acc_task0 = evaluate_model_on_task(model, test_loader, trainer.device)
 
         # Task 1 with replay
         train_loader_1, test_loader_1, _ = get_task_loaders('split_mnist', 1, 2, 64)
@@ -144,7 +142,7 @@ class TestContinualLearning:
 
         # Check task 0 retention
         _, test_loader_0, _ = get_task_loaders('split_mnist', 0, 2, 64)
-        acc_task0_after = evaluate_model_on_task(model, test_loader_0, trainer.config.device)
+        acc_task0_after = evaluate_model_on_task(model, test_loader_0, trainer.device)
 
         # With replay, should retain some performance
         assert acc_task0_after > 0.1

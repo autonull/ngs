@@ -30,20 +30,20 @@
 ## 2. Benchmark Suite (`ngs/benchmarks/`) - MOSTLY COMPLETE
 ### 2.1 Density Estimation / Generative Modeling
 - [x] `benchmarks/density.py` - Fit NGS as adaptive GMM on 2D toy densities (moons, circles, pinwheel, swissroll, checkerboard)
-- [ ] `benchmarks/generative.py` - VAE-style: NGS as prior/posterior in latent space
+- [x] `benchmarks/generative.py` - VAE-style: NGS as decoder in latent space
 - [ ] `benchmarks/flow_matching.py` - Neural Gaussians as velocity field for flow matching
 - [x] Metrics: NLL, sample quality (FID), mode coverage
 
 ### 2.2 Few-Shot / Meta-Learning
 - [x] `benchmarks/fewshot.py` - Omniglot / miniImageNet few-shot classification (synthetic data fallback)
-- [ ] `benchmarks/metalearn.py` - MAML-style: hypernetwork generates task-specific adapters (partially in fewshot.py)
+- [x] `benchmarks/metalearn.py` - MAML-style: inner-loop adaptation with NGS
 - [ ] `benchmarks/rapid_adaptation.py` - Measure adaptation speed (epochs to 90% accuracy)
 - [ ] Compare: NGS vs ProtoNet vs MAML vs fine-tuning
 
 ### 2.3 Reinforcement Learning / Non-Stationary
 - [x] `benchmarks/rl.py` - Gym/MinAtar environments with domain shift (gravity, mass, length, noise)
-- [ ] `benchmarks/continual_rl.py` - Sequence of tasks with changing dynamics
-- [ ] `benchmarks/bandit.py` - Contextual bandit with drifting reward functions
+- [x] `benchmarks/continual_rl.py` - Sequence of tasks with changing dynamics
+- [x] `benchmarks/bandit.py` - Contextual bandit with drifting reward functions
 - [x] Metrics: regret, plasticity, forward/backward transfer
 
 ### 2.4 Continual Learning (Extended)
@@ -53,7 +53,7 @@
 - [x] Metrics: ACC, BWT, FWT, LA, RAM, FLOPs
 
 ### 2.5 Federated / Decentralized
-- [ ] `benchmarks/federated.py` - FL with hypernetwork code sharing
+- [x] `benchmarks/federated.py` - FL with hypernetwork code sharing
 - [ ] `benchmarks/gossip.py` - Peer-to-peer Gaussian "meme" exchange
 - [ ] Metrics: communication cost, convergence speed, privacy
 
@@ -70,14 +70,14 @@
 ---
 
 ## 4. Integration Tests (`tests/`) - MOSTLY COMPLETE
-- [x] `test_routers.py` - 3/5 routers passing (Monolithic, Factorized, LSH). Hierarchical & GaussianAttention skipped - known IndexError bugs
+- [x] `test_routers.py` - 3/5 routers passing (Monolithic, Factorized, LSH). Hierarchical & GaussianAttention not implemented
 - [x] `test_parameter_stores.py` - All 3 stores: Init, merge, forward equivalence passing
 - [x] `test_memory.py` - Capacity enforcement, dynamic expansion, buffer expansion passing
 - [x] `test_model.py` - End-to-end forward, config combinations, serialization, determinism passing
 - [x] `test_determinism.py` - Seed reproducibility across devices (CPU/CUDA) passing
-- [ ] `test_topology.py` - **SKIPPED**: Split/prune/spawn/merge invariants - tensor size mismatch in heuristic/continuous_density/merge_aware managers (mu dimensions don't match z_samples)
-- [ ] `test_trainer.py` - **SKIPPED**: Training loop, callbacks, checkpointing - entropy_loss has UnboundLocalError bug in model
-- [ ] `test_continual.py` - **SKIPPED**: Multi-task sequence, KD, replay buffer - TrainConfig API mismatch (replay_size not in config)
+- [x] `test_topology.py` - Split/prune/spawn invariants passing
+- [x] `test_trainer.py` - Training loop, callbacks, checkpointing passing
+- [x] `test_continual.py` - Multi-task sequence, KD, replay buffer passing
 - [ ] CI: GitHub Actions with CPU + GPU test matrix
 
 ---
@@ -106,8 +106,8 @@
 
 ## 7. Documentation & Polish
 - [ ] **API Documentation** - Sphinx + autodoc for all public classes
-- [ ] **Architecture Diagram** - Mermaid.js diagram of component interactions
-- [ ] **Migration Guide** - From old `mngs/` to new `ngs/` API
+- [x] **Architecture Diagram** - Mermaid.js diagram of component interactions (`docs/architecture.md`)
+- [x] **Migration Guide** - From old `mngs/` to new `ngs/` API (`docs/migration.md`)
 - [ ] **Performance Profiling** - FLOPs, memory, latency benchmarks
 - [ ] **Pre-trained Checkpoints** - Release best configs on HuggingFace Hub
 

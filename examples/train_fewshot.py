@@ -4,7 +4,7 @@ Train NGS for Few-Shot learning on Omniglot.
 """
 
 import argparse
-from ngs.benchmarks.fewshot import run_fewshot_benchmark
+from ngs.benchmarks import run_fewshot_benchmark
 
 
 def main():

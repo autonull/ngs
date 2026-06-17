@@ -107,7 +107,8 @@ class NGSTrainer:
         self,
         train_loader: DataLoader,
         old_model: Optional[nn.Module] = None,
-        task_id: int = 0
+        task_id: int = 0,
+        replay_buffer: Optional[Any] = None
     ) -> Dict[str, float]:
         """Train for one epoch."""
         self.model.train()
@@ -129,8 +130,9 @@ class NGSTrainer:
             y = y.to(self.device)
 
             # Replay
-            if self.config.replay_buffer is not None and len(self.config.replay_buffer) > x.size(0):
-                rx, ry = self.config.replay_buffer.sample(int(x.size(0) * self.config.replay_ratio))
+            buffer = replay_buffer if replay_buffer is not None else self.config.replay_buffer
+            if buffer is not None and len(buffer) > x.size(0):
+                rx, ry = buffer.sample(int(x.size(0) * self.config.replay_ratio))
                 if rx is not None:
                     rx, ry = rx.to(self.device), ry.to(self.device)
                     x = torch.cat([x, rx], dim=0)

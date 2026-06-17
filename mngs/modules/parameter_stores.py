@@ -178,3 +178,34 @@ class HypernetworkStore(BaseParameterStore):
         return {
             'codes': self.codes[indices],
         }
+
+
+def build_parameter_store(config, max_k: int = None, d_latent: int = None):
+    """Factory function to build parameter store from config."""
+    from mngs.core.config import ParameterStorage
+    
+    storage = config.parameter_storage if hasattr(config, 'parameter_storage') else config
+    max_k = max_k or config.max_k
+    d_latent = d_latent or config.latent_dim
+    use_lora = getattr(config, 'use_lora', True)
+    lora_rank = getattr(config, 'lora_rank', 4)
+    code_dim = getattr(config, 'hypernetwork_code_dim', 8)
+    hidden_dim = getattr(config, 'hypernetwork_hidden_dim', 16)
+    
+    if storage == ParameterStorage.DIRECT_ADAPTER:
+        return DirectAdapterStore(
+            max_k=max_k,
+            d_latent=d_latent,
+            use_lora=use_lora,
+            lora_rank=lora_rank
+        )
+    elif storage == ParameterStorage.HYPERNETWORK_GENERATED:
+        return HypernetworkStore(
+            max_k=max_k,
+            d_latent=d_latent,
+            code_dim=code_dim,
+            hidden_dim=hidden_dim,
+            use_lora=use_lora
+        )
+    else:
+        raise ValueError(f"Unknown parameter storage: {storage}")
