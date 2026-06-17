@@ -6,16 +6,23 @@
   - Monolithic, Factorized, LSH, Hierarchical, GaussianAttention, UncertaintyAware
 - [x] 3 Parameter stores (`ngs/modules/parameter_stores.py`)
   - DirectAdapter, Hypernetwork, LoRA
+- [x] 4 Topology managers (`ngs/modules/topology_managers.py`)
+  - Heuristic, ContinuousDensity, MergeAware, MetaLearned
+- [x] 3 Memory managers (`ngs/modules/memory_managers.py`)
+  - PreAllocated, Dynamic, StrictCapacity
+- [x] Unified NGSModel (`ngs/models/ngs.py`)
+- [x] Training framework (`ngs/training/trainer.py`)
 - [x] Riemannian Manifold (`ngs/modules/riemannian.py`)
 - [x] LLM Wrapper (`ngs/models/llm_wrapper.py`)
+- [x] NGS Integration Tests (`tests/test_ngs_integration.py`)
 
 ## In Progress / Partially Complete
-- [ ] 4 Topology managers (`ngs/modules/topology_managers.py`) - NEED IMPLEMENTATION
+- [x] 4 Topology managers (`ngs/modules/topology_managers.py`)
   - Heuristic, ContinuousDensity, MergeAware, MetaLearned
-- [ ] 3 Memory managers (`ngs/modules/memory_managers.py`) - NEED IMPLEMENTATION
+- [x] 3 Memory managers (`ngs/modules/memory_managers.py`)
   - PreAllocated, Dynamic, StrictCapacity
-- [ ] Unified NGSModel (`ngs/models/ngs.py`) - NEED IMPLEMENTATION
-- [ ] Training framework (`ngs/training/trainer.py`) - NEED IMPLEMENTATION
+- [x] Unified NGSModel (`ngs/models/ngs.py`)
+- [x] Training framework (`ngs/training/trainer.py`)
 - [ ] Visualization suite (`ngs/visualization/visualize.py`) - NEED IMPLEMENTATION
 
 ---
@@ -188,36 +195,23 @@
 
 ## Critical Bug Fixes Needed (from historic TODO)
 
-### 1. entropy_loss UnboundLocalError (`ngs/models/ngs.py` - to be created)
-```python
-def entropy_loss(self, x: Optional[torch.Tensor] = None) -> torch.Tensor:
-    if x is not None:
-        z = self.p_down(x)
-    elif self._last_routing_output is not None:
-        z = self._last_routing_output.latent  # Use cached latent
-    else:
-        return torch.tensor(0.0, device=self.p_down.weight.device)
-    routing = self.router(z)
-    ...
-```
+### 1. entropy_loss UnboundLocalError (`ngs/models/ngs.py`) ✅ FIXED
+The `entropy_loss` method in `ngs/models/ngs.py` now correctly handles the case where x=None by using cached routing output. The method computes entropy for both monolithic and factorized routing strategies.
 
-### 2. Topology Manager Tensor Size Mismatch
-**Issue**: `z_samples` has latent_dim (e.g., 32) but `mu_active` only has active units (e.g., 4).
-**Fix**: Project z_samples to active unit subspace or expand mu_active to match latent_dim.
-```python
-# In adapt_topology methods:
-mu_active = self._get_active_mu(model.router)  # Returns [n_active, latent_dim]
-# Ensure mu_active has same latent_dim as z_samples
-```
+### 2. Topology Manager Tensor Size Mismatch ✅ FIXED
+The `_flat_access` helper function in topology managers ensures dimensionality compatibility with both monolithic and factorized routers. For factorized routers, it correctly flattens subspace parameters.
 
-### 3. Hierarchical Router IndexError
-**Location**: Line ~343 in mngs version: `combined_idx[final_rel]` out of bounds
-**Cause**: `top_k_factorized` or `fine_units_per_coarse` misconfiguration
-**Fix**: Validate index bounds before access
+### 3. Hierarchical Router IndexError ✅ FIXED
+The HierarchicalRouter in `ngs/modules/routers.py` properly checks that `active_idx` has bounds before accessing, and the `forward` method handles empty levels gracefully with early returns.
 
-### 4. TrainerConfig API Naming
-**Issue**: `TrainConfig` vs `TrainerConfig` inconsistency
-**Fix**: Use `TrainerConfig` consistently across `ngs/training/trainer.py` and all imports
+### 4. TrainerConfig API Naming ✅ FIXED
+`TrainerConfig` is used consistently across `ngs/training/trainer.py` and all imports. The old `TrainConfig` alias is not used in the `ngs/` namespace.
+
+### 5. Additional Fixes Applied ✅
+- **Memory capacity enforcement**: Memory managers now properly enforce capacity constraints via `enforce_capacity()` methods.
+- **Buffer expansion**: `expand_buffers()` correctly expands all router and parameter store buffers.
+- **Factorized routing**: Proper subspace projection handling in topology adaptation.
+
 
 ---
 
@@ -236,24 +230,25 @@ mu_active = self._get_active_mu(model.router)  # Returns [n_active, latent_dim]
 
 ## Implementation Notes for Remaining Work
 
-### Topology Managers (Port from mngs + add MergeAware, MetaLearned)
-- **HeuristicManager**: Copy from `mngs/modules/topology_managers.py`, adapt to `ngs/core/interfaces.BaseTopologyManager`
-- **ContinuousDensityManager**: Copy from mngs, add split-gate integration
+### Topology Managers (Port from mngs + add MergeAware, MetaLearned) ✅ COMPLETE
+- **HeuristicManager**: Adapted from `mngs/modules/topology_managers.py` to `ngs/core/interfaces.BaseTopologyManager`
+- **ContinuousDensityManager**: Adapted with split-gate integration, supports both NGS and old model
 - **MergeAwareManager**: NEW - cosine similarity on full covariance (means + scales), merge when overlap > threshold
 - **MetaLearnedManager**: NEW - meta-learning over topology actions (split/prune/merge/spawn as RL actions)
 
-### Memory Managers (All NEW)
+### Memory Managers (All NEW) ✅ COMPLETE
 - **PreAllocatedManager**: Fixed buffer, mask unused units
 - **DynamicManager**: Expand buffers on demand, track utilization
 - **StrictCapacityManager**: Hard capacity limit, evict LRU/LRU when full
 
-### Unified NGSModel (`ngs/models/ngs.py`)
+### Unified NGSModel (`ngs/models/ngs.py`) ✅ COMPLETE
 - Combine: Router + ParameterStore + TopologyManager + MemoryManager
-- Methods: `forward()`, `adapt_topology()`, `compute_topology_losses()`, `entropy_loss()`, `expand_capacity()`
+- Methods: `forward()`, `adapt_density()`, `compute_topology_losses()`, `entropy_loss()`, `expand_capacity()`
 - Follow `mngs/model.py` structure but with new interfaces
+- Returns: SimpleNamespace with logits, routing_output, latent fields
 
-### Training Framework (`ngs/training/trainer.py`)
-- Port from `mngs/training/trainer.py`
+### Training Framework (`ngs/training/trainer.py`) ✅ COMPLETE
+- Ported from `mngs/training/trainer.py`
 - Add: Knowledge distillation, replay buffer integration, callbacks
 - Config: `TrainerConfig` (not `TrainConfig`)
 
