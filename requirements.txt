@@ -1,0 +1,32 @@
+# Core dependencies
+torch>=2.0
+numpy>=1.21
+tqdm>=4.65
+matplotlib>=3.5
+scikit-learn>=1.0
+scipy>=1.7
+
+# Visualization
+plotly>=5.0
+dash>=2.0
+
+# Logging
+wandb>=0.15
+tensorboard>=2.10
+
+# Config management
+hydra-core>=1.2
+
+# Testing
+pytest>=7.0
+pytest-cov>=4.0
+
+# RL
+gymnasium>=0.29
+
+# Datasets
+torchvision>=0.15
+torchdata>=0.6
+
+# Optional: for advanced features
+# triton>=2.0  # For hardware kernels
