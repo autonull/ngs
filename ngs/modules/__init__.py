@@ -19,6 +19,11 @@ from mngs.modules.topology_managers import (
     build_topology_manager,
     BaseTopologyManager,
 )
+from .riemannian import (
+    RiemannianHypernetworkManifold,
+    HypernetworkCodeManifold,
+    build_riemannian_manifold,
+)
 
 __all__ = [
     "MonolithicRouter",
@@ -34,4 +39,7 @@ __all__ = [
     "ContinuousDensityManager",
     "build_topology_manager",
     "BaseTopologyManager",
+    "RiemannianHypernetworkManifold",
+    "HypernetworkCodeManifold",
+    "build_riemannian_manifold",
 ]

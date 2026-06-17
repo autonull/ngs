@@ -8,6 +8,11 @@ from .metalearn import run_metalearn_benchmark
 from .continual_rl import run_continual_rl_benchmark
 from .bandit import run_bandit_benchmark
 from .federated import run_federated_benchmark
+from .flow_matching import run_flow_matching_benchmark
+from .rapid_adaptation import run_rapid_adaptation_benchmark
+from .online_cl import run_online_cl_benchmark
+from .class_incremental import run_class_incremental_benchmark
+from .gossip import run_gossip_benchmark
 
 __all__ = [
     "run_density_benchmark",
@@ -18,4 +23,9 @@ __all__ = [
     "run_continual_rl_benchmark",
     "run_bandit_benchmark",
     "run_federated_benchmark",
+    "run_flow_matching_benchmark",
+    "run_rapid_adaptation_benchmark",
+    "run_online_cl_benchmark",
+    "run_class_incremental_benchmark",
+    "run_gossip_benchmark",
 ]

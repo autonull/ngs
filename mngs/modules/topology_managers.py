@@ -43,6 +43,58 @@ class HeuristicManager(BaseTopologyManager):
         self.noise_std = noise_std
         self.ema_decay = ema_decay
     
+    def _get_factorized_coverage(self, model, z_samples, spawn_thresh, mu, log_s, log_alpha, free_slots, max_spawn_per_call):
+        """Compute coverage and spawn for FactorizedRouter (per-subspace)."""
+        from mngs.modules.routers import FactorizedRouter
+        if not isinstance(model.router, FactorizedRouter):
+            return 0
+        
+        num_spawned = 0
+        active_mask = model.router.active_mask
+        units_per_space = model.router.units_per_space
+        
+        for s in range(model.router.num_subspaces):
+            start = s * units_per_space
+            end = start + units_per_space
+            sub_active = active_mask[start:end]
+            active_local = sub_active.nonzero(as_tuple=True)[0]
+            
+            if len(active_local) == 0:
+                continue
+            
+            # Project z_samples into this subspace
+            z_s = model.router.subspace_projectors[s](z_samples)  # [N, d_sub]
+            
+            # Get active subspace units
+            mu_s = model.router.mu[s][active_local]
+            log_s_s = model.router.log_s[s][active_local]
+            log_alpha_s = model.router.log_alpha[s][active_local]
+            s_sq = torch.exp(2 * log_s_s) + 1e-5
+            
+            diff = z_s.unsqueeze(1) - mu_s.unsqueeze(0)
+            mahalanobis_sq = ((diff ** 2) / s_sq).sum(dim=-1)
+            log_w = log_alpha_s - 0.5 * mahalanobis_sq
+            max_log_w, _ = log_w.max(dim=-1)
+            
+            uncovered_mask = max_log_w < spawn_thresh
+            if uncovered_mask.any():
+                uncovered_z = z_s[uncovered_mask]
+                free_slots_sub = (~active_mask[start:end]).nonzero(as_tuple=True)[0]
+                if len(free_slots_sub) > 0:
+                    n_spawn = min(len(uncovered_z), len(free_slots_sub), max_spawn_per_call - num_spawned)
+                    if n_spawn > 0:
+                        spawn_local = free_slots_sub[:n_spawn]
+                        spawn_global = start + spawn_local
+                        
+                        mu.data[spawn_global] = uncovered_z[:n_spawn]
+                        log_s.data[spawn_global].fill_(0.0)
+                        log_alpha.data[spawn_global].fill_(0.0)
+                        model.router.grad_mu_ema[spawn_global] = 0
+                        active_mask[spawn_global] = True
+                        num_spawned += n_spawn
+        
+        return num_spawned
+    
     def adapt_topology(self, model, 
                        optimizer=None,
                        spawn_thresh: float = -5.0,
@@ -164,27 +216,36 @@ class HeuristicManager(BaseTopologyManager):
             if len(free_slots) > 0:
                 z_samples = z_samples.to(mu.device)
                 active_idx = model.router.active_mask.nonzero(as_tuple=True)[0]
-                mu_active = mu[active_idx]
-                log_s_active = log_s[active_idx]
-                s_sq = torch.exp(2 * log_s_active) + 1e-5
                 
-                diff = z_samples.unsqueeze(1) - mu_active.unsqueeze(0)
-                mahalanobis_sq = ((diff ** 2) / s_sq).sum(dim=-1)
-                log_w = log_alpha[active_idx] - 0.5 * mahalanobis_sq
-                max_log_w, _ = log_w.max(dim=-1)
-                
-                uncovered_mask = max_log_w < spawn_thresh
-                if uncovered_mask.any():
-                    uncovered_z = z_samples[uncovered_mask]
-                    n_spawn = min(len(uncovered_z), len(free_slots), max_spawn_per_call)
-                    if n_spawn > 0:
-                        spawn_idx = free_slots[:n_spawn]
-                        mu.data[spawn_idx] = uncovered_z[:n_spawn]
-                        log_s.data[spawn_idx].fill_(0.0)
-                        log_alpha.data[spawn_idx].fill_(0.0)
-                        model.router.grad_mu_ema[spawn_idx] = 0
-                        model.router.active_mask[spawn_idx] = True
-                        num_spawned = n_spawn
+                # Check if this is a FactorizedRouter
+                from mngs.modules.routers import FactorizedRouter
+                if isinstance(model.router, FactorizedRouter):
+                    num_spawned = self._get_factorized_coverage(
+                        model, z_samples, spawn_thresh, mu, log_s, log_alpha,
+                        free_slots, max_spawn_per_call
+                    )
+                else:
+                    mu_active = mu[active_idx]
+                    log_s_active = log_s[active_idx]
+                    s_sq = torch.exp(2 * log_s_active) + 1e-5
+                    
+                    diff = z_samples.unsqueeze(1) - mu_active.unsqueeze(0)
+                    mahalanobis_sq = ((diff ** 2) / s_sq).sum(dim=-1)
+                    log_w = log_alpha[active_idx] - 0.5 * mahalanobis_sq
+                    max_log_w, _ = log_w.max(dim=-1)
+                    
+                    uncovered_mask = max_log_w < spawn_thresh
+                    if uncovered_mask.any():
+                        uncovered_z = z_samples[uncovered_mask]
+                        n_spawn = min(len(uncovered_z), len(free_slots), max_spawn_per_call)
+                        if n_spawn > 0:
+                            spawn_idx = free_slots[:n_spawn]
+                            mu.data[spawn_idx] = uncovered_z[:n_spawn]
+                            log_s.data[spawn_idx].fill_(0.0)
+                            log_alpha.data[spawn_idx].fill_(0.0)
+                            model.router.grad_mu_ema[spawn_idx] = 0
+                            model.router.active_mask[spawn_idx] = True
+                            num_spawned = n_spawn
         
         return num_pruned, num_split, num_spawned
 
@@ -217,6 +278,61 @@ class ContinuousDensityManager(BaseTopologyManager):
         if hasattr(router, 'flat_mu'):
             return router.flat_mu, router.flat_log_s, router.flat_log_alpha
         return router.mu, router.log_s, router.log_alpha
+
+    def _get_factorized_coverage(self, model, z_samples, spawn_thresh, mu, log_s, log_alpha, free_slots, max_spawn_per_call):
+        """Compute coverage and spawn for FactorizedRouter (per-subspace)."""
+        from mngs.modules.routers import FactorizedRouter
+        if not isinstance(model.router, FactorizedRouter):
+            return 0
+        
+        num_spawned = 0
+        active_mask = model.router.active_mask
+        units_per_space = model.router.units_per_space
+        
+        for s in range(model.router.num_subspaces):
+            start = s * units_per_space
+            end = start + units_per_space
+            sub_active = active_mask[start:end]
+            active_local = sub_active.nonzero(as_tuple=True)[0]
+            
+            if len(active_local) == 0:
+                continue
+            
+            # Project z_samples into this subspace
+            z_s = model.router.subspace_projectors[s](z_samples)  # [N, d_sub]
+            
+            # Get active subspace units
+            mu_s = model.router.mu[s][active_local]
+            log_s_s = model.router.log_s[s][active_local]
+            log_alpha_s = model.router.log_alpha[s][active_local]
+            s_sq = torch.exp(2 * log_s_s) + 1e-5
+            
+            diff = z_s.unsqueeze(1) - mu_s.unsqueeze(0)
+            mahalanobis_sq = ((diff ** 2) / s_sq).sum(dim=-1)
+            log_w = log_alpha_s - 0.5 * mahalanobis_sq
+            max_log_w, _ = log_w.max(dim=-1)
+            
+            uncovered_mask = max_log_w < spawn_thresh
+            if uncovered_mask.any():
+                uncovered_z = z_s[uncovered_mask]
+                free_slots_sub = (~active_mask[start:end]).nonzero(as_tuple=True)[0]
+                if len(free_slots_sub) > 0:
+                    n_spawn = min(len(uncovered_z), len(free_slots_sub), max_spawn_per_call - num_spawned)
+                    if n_spawn > 0:
+                        spawn_local = free_slots_sub[:n_spawn]
+                        spawn_global = start + spawn_local
+                        
+                        mu.data[spawn_global] = uncovered_z[:n_spawn]
+                        log_s.data[spawn_global].fill_(0.0)
+                        log_alpha.data[spawn_global].fill_(0.0)
+                        model.split_gate.data[spawn_global] = 0.0
+                        model.activation_density[spawn_global] = 0.0
+                        model.error_density[spawn_global] = 0.0
+                        model.router.grad_mu_ema[spawn_global] = 0
+                        active_mask[spawn_global] = True
+                        num_spawned += n_spawn
+        
+        return num_spawned
     
     def adapt_topology(self, model, split_thresh: float = None,
                        prune_thresh: float = None, spawn_thresh: float = None,
@@ -293,7 +409,14 @@ class ContinuousDensityManager(BaseTopologyManager):
             if len(free_slots) > 0:
                 z_samples = z_samples.to(mu.device)
                 active_idx = model.router.active_mask.nonzero(as_tuple=True)[0]
-                if len(active_idx) > 0:
+                
+                from mngs.modules.routers import FactorizedRouter
+                if isinstance(model.router, FactorizedRouter):
+                    num_spawned = self._get_factorized_coverage(
+                        model, z_samples, spawn_thresh, mu, log_s, log_alpha,
+                        free_slots, max_spawn_per_call
+                    )
+                elif len(active_idx) > 0:
                     mu_active = mu[active_idx]
                     log_s_active = log_s[active_idx]
                     s_sq = torch.exp(2 * log_s_active) + 1e-5
