@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
-from ngs.core.interfaces import NGSConfig, BaseParameterStore
+from ngs.core.interfaces import NGSConfig, ParameterStorage, BaseParameterStore
 
 
 class DirectAdapterStore(BaseParameterStore):

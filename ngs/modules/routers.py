@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Optional
-from ngs.core.interfaces import NGSConfig, RoutingOutput, BaseRouter
+from ngs.core.interfaces import NGSConfig, RoutingStrategy, RoutingOutput, BaseRouter
 
 
 class MonolithicRouter(BaseRouter):
@@ -200,17 +200,16 @@ class HierarchicalRouter(BaseRouter):
             self.level_capacities.append(max(cap, 1))
             remaining -= cap
         
-        # Level-specific parameters
-        self.level_mu = nn.ModuleList()
-        self.level_log_s = nn.ModuleList()
-        self.level_log_alpha = nn.ModuleList()
-        self.level_active_mask = nn.ModuleList()
+        # Level-specific parameters - use ParameterList for proper registration
+        self.level_mu = nn.ParameterList()
+        self.level_log_s = nn.ParameterList()
+        self.level_log_alpha = nn.ParameterList()
         
-        for cap in self.level_capacities:
+        for i, cap in enumerate(self.level_capacities):
             self.level_mu.append(nn.Parameter(torch.randn(cap, config.latent_dim) * 1.0))
             self.level_log_s.append(nn.Parameter(torch.zeros(cap, config.latent_dim)))
             self.level_log_alpha.append(nn.Parameter(torch.zeros(cap)))
-            self.register_buffer(f'level_{len(self.level_active_mask)}_active_mask', 
+            self.register_buffer(f'level_{i}_active_mask', 
                                torch.zeros(cap, dtype=torch.bool))
 
     @property
