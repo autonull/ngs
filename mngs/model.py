@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Dict
 
 from mngs.core.config import MNGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
 from mngs.modules.routers import MonolithicRouter, FactorizedRouter, LSRRouter
@@ -380,6 +380,15 @@ class MNGS(nn.Module):
         mask = ~torch.eye(len(active_idx), dtype=torch.bool, device=mu.device)
         min_dist = dist[mask].min()
         return -min_dist
+
+    def compute_topology_losses(self) -> Dict[str, torch.Tensor]:
+        """Compute all topology-related losses."""
+        losses = {}
+        losses['entropy'] = self.entropy_loss(torch.randn(1, self.d_in, device=self.p_down.weight.device))
+        losses['diversity'] = self.diversity_loss()
+        if self.config.topology_control == TopologyControl.CONTINUOUS_DENSITY:
+            losses['split_gate'] = self.split_gate_loss()
+        return losses
 
 
 def build_mngs(d_in: int, d_out: int, config: MNGSConfig) -> MNGS:

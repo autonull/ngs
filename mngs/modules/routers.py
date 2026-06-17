@@ -62,6 +62,11 @@ class MonolithicRouter(BaseRouter):
     def K(self) -> int:
         """Number of currently active units."""
         return self.active_mask.sum().item()
+
+    @property
+    def max_units(self) -> int:
+        """Maximum capacity."""
+        return self.max_k
     
     def forward(self, z: torch.Tensor) -> tuple:
         """
@@ -153,7 +158,7 @@ class FactorizedRouter(BaseRouter):
         self.log_alpha = nn.Parameter(torch.zeros(num_subspaces, units_per_space))
         
         # Active mask for topology adaptation (flat over all subspaces)
-        self.register_buffer('active_mask', torch.ones(total_units, dtype=torch.bool))
+        self.register_buffer('active_mask', torch.zeros(total_units, dtype=torch.bool))
         self.register_buffer('grad_mu_ema', torch.zeros(total_units))
         self.ema_decay = 0.99
         
@@ -162,6 +167,20 @@ class FactorizedRouter(BaseRouter):
             self.param_stores = nn.ModuleList(param_stores)
         else:
             self.param_stores = None
+
+    @property
+    def K(self) -> int:
+        """Number of currently active units."""
+        return self.active_mask.sum().item()
+
+    @property
+    def max_units(self) -> int:
+        """Maximum capacity."""
+        return self.num_subspaces * self.units_per_space
+
+    def initialize_units(self, k_init: int):
+        """Initialize the first k_init units as active."""
+        self.active_mask[:k_init] = True
     
     def set_param_stores(self, param_stores):
         """Set per-subspace parameter stores."""
@@ -258,6 +277,23 @@ class LSRRouter(BaseRouter):
             torch.randn(num_hash_functions, d_latent, num_buckets)
         )
         
+        # Active mask for compatibility
+        self.register_buffer('active_mask', torch.ones(num_buckets, dtype=torch.bool))
+        
+    @property
+    def K(self) -> int:
+        """Number of currently active units."""
+        return self.active_mask.sum().item()
+
+    @property
+    def max_units(self) -> int:
+        """Maximum capacity."""
+        return self.num_buckets
+
+    def initialize_units(self, k_init: int):
+        """Initialize the first k_init units as active."""
+        self.active_mask[:min(k_init, self.num_buckets)] = True
+        
     def forward(self, z: torch.Tensor) -> tuple:
         """
         LSH-based approximate routing.
@@ -270,16 +306,21 @@ class LSRRouter(BaseRouter):
         """
         # Compute hash signatures
         # z: [B, d], projections: [H, d, num_buckets]
-        # signatures: [B, H]
-        projections = torch.einsum('bd,hdb->bh', z, self.hash_projections)  # [B, H]
-        signatures = torch.argmax(projections, dim=-1)  # [B, H]
-        
-        # Find buckets for each input
-        # This is a simplified placeholder - real LSH would use hash tables
-        # For now, return a simple top-k as fallback
-        
-        # Create pseudo-distances based on hash collisions
+        # We want signatures per hash function: [B, H]
+        # For each hash function h: z @ W_h where W_h: [d, num_buckets] -> [B, num_buckets]
+        # Then take argmax over buckets for each h
         B = z.shape[0]
+        # z: [B, d], hash_projections: [H, d, num_buckets]
+        # projections[h] = z @ hash_projections[h] -> [B, num_buckets]
+        # We want signatures: [B, H]
+        signatures = []
+        for h in range(self.num_hash_functions):
+            proj = z @ self.hash_projections[h]  # [B, num_buckets]
+            sig = torch.argmax(proj, dim=-1)  # [B]
+            signatures.append(sig)
+        signatures = torch.stack(signatures, dim=-1)  # [B, H]
+        
+        # Create pseudo-distances based on hash collisions (placeholder)
         pseudo_dist = torch.randn(B, self.num_buckets, device=z.device)
         topk_vals, topk_idx = torch.topk(pseudo_dist, self.top_k, dim=-1)
         topk_weights = F.softmax(topk_vals, dim=-1)

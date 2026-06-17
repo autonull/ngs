@@ -11,9 +11,9 @@ import numpy as np
 from pathlib import Path
 import json
 
-from ngs.core.interfaces import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
-from ngs.models.ngs import build_ngs
-from ngs.training.trainer import NGSTrainer, TrainConfig as TrainerConfig
+from mngs.core.config import MNGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
+from mngs import build_mngs
+from mngs.training.trainer import NGSTrainer, TrainConfig as TrainerConfig
 from experiments.datasets import get_task_loaders, PermutedMNIST, ReplayBuffer
 from experiments.metrics import compute_metrics, evaluate_model_on_task
 import copy
@@ -29,9 +29,9 @@ def set_seed(seed: int):
     torch.backends.cudnn.benchmark = False
 
 
-def get_config(args) -> NGSConfig:
-    """Create NGSConfig from args."""
-    return NGSConfig(
+def get_config(args) -> MNGSConfig:
+    """Create MNGSConfig from args."""
+    return MNGSConfig(
         latent_dim=args.latent_dim,
         k_init=args.k_init,
         max_k=args.max_k,
@@ -46,7 +46,6 @@ def get_config(args) -> NGSConfig:
         num_subspaces=args.num_subspaces,
         split_threshold=args.split_thresh,
         prune_threshold=args.prune_thresh,
-        merge_threshold=args.merge_thresh,
         entropy_weight=args.entropy_weight,
         diversity_weight=args.diversity_weight,
     )
@@ -57,7 +56,7 @@ def run_split_mnist(args, config, device):
     n_tasks = 5
     classes_per_task = 2
     
-    model = build_ngs(784, 10, config).to(device)
+    model = build_mngs(784, 10, config).to(device)
     
     trainer_config = TrainerConfig(
         lr=args.lr,
@@ -129,7 +128,7 @@ def run_permuted_mnist(args, config, device):
     """Run Permuted-MNIST continual learning."""
     n_tasks = 10
     
-    model = build_ngs(784, 10, config).to(device)
+    model = build_mngs(784, 10, config).to(device)
     
     trainer_config = TrainerConfig(
         lr=args.lr,
@@ -281,14 +280,14 @@ def main():
     parser.add_argument("--k-init", type=int, default=128)
     parser.add_argument("--max-k", type=int, default=512)
     parser.add_argument("--top-k", type=int, default=8)
-    parser.add_argument("--routing", default="factorized", 
-                        choices=["monolithic", "factorized", "hierarchical", "gaussian_attention"])
-    parser.add_argument("--param-storage", default="hypernetwork",
-                        choices=["direct", "hypernetwork", "lora"])
+    parser.add_argument("--routing", default="factorized_subspace", 
+                        choices=["monolithic_mahalanobis", "factorized_subspace", "lsh_approximate"])
+    parser.add_argument("--param-storage", default="hypernetwork_generated",
+                        choices=["direct_adapter", "hypernetwork_generated"])
     parser.add_argument("--topology", default="continuous_density",
-                        choices=["heuristic", "continuous_density", "merge_aware", "meta_learned"])
-    parser.add_argument("--memory", default="pre_allocated",
-                        choices=["pre_allocated", "dynamic", "strict_capacity"])
+                        choices=["discrete_heuristic", "continuous_density"])
+    parser.add_argument("--memory", default="pre_allocated_masked",
+                        choices=["dynamic_growth", "pre_allocated_masked", "strict_capacity"])
     parser.add_argument("--hypernet-code-dim", type=int, default=8)
     parser.add_argument("--use-lora", action="store_true", default=True)
     parser.add_argument("--lora-rank", type=int, default=4)

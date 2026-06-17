@@ -7,6 +7,7 @@ from mngs.core.config import (
     TopologyControl,
     MemoryManagement,
 )
+from mngs.training.trainer import NGSTrainer, TrainConfig, ContinualTrainer, create_trainer
 
 __all__ = [
     "MNGS",
@@ -16,4 +17,8 @@ __all__ = [
     "ParameterStorage",
     "TopologyControl",
     "MemoryManagement",
+    "NGSTrainer",
+    "TrainConfig",
+    "ContinualTrainer",
+    "create_trainer",
 ]
