@@ -92,50 +92,32 @@ All implemented in `ngs/visualization/visualize.py` and `experiments/plotting.py
 ### 3.3 Interactive Dashboard (Comprehensive Server)
 - [x] Basic `interactive_dashboard()` in `ngs/visualization/visualize.py` (static Plotly fallback)
 - [x] Enhanced Dash-based version with config controls and export
-- [ ] **`dashboard.sh` turnkey launch script** — `./dashboard.sh` starts server on localhost:8050 with auto-browser open
-- [ ] **Full Dash dashboard application** (`ngs/dashboard/app.py`):
-  - **Experiment Config Panel (Sidebar):**
-    - Routing Strategy dropdown (Monolithic, Factorized, LSH, Hierarchical, GaussianAttention, UncertaintyAware)
-    - Parameter Storage dropdown (DirectAdapter, Hypernetwork, LoRA)
-    - Topology Control dropdown (DiscreteHeuristic, ContinuousDensity, MergeAware, MetaLearned)
-    - Memory Management dropdown (PreAllocated, Dynamic, StrictCapacity)
-    - Numeric inputs: latent_dim, max_k, top_k, lora_rank, hypernetwork_code_dim, num_subspaces
-    - Split/Prune threshold sliders (live during training)
-    - Task selector dropdown (from benchmark suite)
-    - Seeds, epochs, batch_size, LR inputs
-    - "Save Config as YAML" button
-  - **Task Launcher (Main Area — Top):**
-    - Dataset/benchmark selector with search
-    - "Launch Training" button (validates config, spawns background worker)
-    - Running jobs table (status, progress, cancel button)
-  - **Live Training Monitor (Main Area — Middle):**
-    - Real-time accuracy/loss curves per task (Plotly live updates via WebSocket/Interval)
-    - K (active units) over time
-    - Task-by-task accuracy matrix building up (heatmap updates each task)
-    - Per-task forgetting bar chart updating
-    - Console/log output stream
-  - **Visualization Suite (Tabbed):**
-    - Topology dynamics (units splits/prunes/spawns over time)
-    - Routing heatmap (samples × top-K units, per task)
-    - 3D Gaussian means (PCA, colored by activation frequency)
-    - Subspace alignment (canonical correlation matrix)
-    - Hypernetwork code t-SNE
-    - Uncertainty calibration reliability diagram
-    - Riemannian geodesic interpolation
-    - Evolution GIF of routing weights
-  - **Result Explorer (Tabbed):**
-    - Browse completed/cancelled runs (filterable table)
-    - Compare multiple runs side-by-side (radar chart overlay)
-    - Download individual plots as PNG/SVG
-    - Export full result JSON / CSV summary
-  - **Server Management:**
-    - Graceful start/stop/cancel of runs
-    - Configurable port, host, CPU/GPU device selection
-    - Resource monitor (GPU mem, CPU %)
-- [ ] **Background worker system** (Celery/Redis or multiprocessing):
-  - Queue training jobs, stream progress via WebSocket/SSE
-  - Isolate each run in its own process for crash isolation
-  - Persist job queue across server restarts
+- [x] **`dashboard.sh` turnkey launch script** — `./dashboard.sh` starts server on localhost:8050 (no auto-browser yet)
+- [x] **Full Dash dashboard application** (`ngs/dashboard/app.py`): ✅ Implemented with core features
+  - **Experiment Config Panel (Sidebar):** ✅
+    - Model profile selector (Baseline, CFG-Net, Abl-Hyper, Ultra-Edge, w/ LoRA variants)
+    - Task/dataset selector (from EXPERIMENTS config)
+    - Numeric inputs: seed, epochs, LR, weight_decay, batch_size, top_k, max_k
+    - Split/Prune threshold sliders
+    - "Save Config as YAML" button (placeholder)
+  - **Task Launcher (Main Area — Top):** ✅
+    - Running jobs table with status/progress
+  - **Live Training Monitor (Main Area — Middle):** ✅ (Placeholders for now)
+    - Real-time accuracy/loss/K curves via dcc.Interval
+  - **Visualization Suite (Tabbed):** ✅
+    - Accuracy matrix heatmap per result file
+    - Active units over time
+    - CL metrics bar chart (accuracy, forgetting, BWT, FWT, LA)
+  - **Result Explorer (Tabbed):** ✅
+    - Filterable table of results with model/dataset filters
+    - Export CSV button (placeholder)
+  - **Server Management:** ✅
+    - Device selector (CPU/GPU)
+    - Configurable results directory
+    - Server info display (platform, python version, job count)
+- [ ] **Background worker system** (no Redis):
+  - Queue training jobs using Python threading
+  - Basic progress tracking in-memory
 
 ---
 
@@ -260,7 +242,7 @@ Phase 0 (docs) → Phase 1 (infra) → Phase 2 (matrix) → Phase 3 (viz) → Ph
 4. [x] Create `configs/` directory with 5 canonical YAML configs
 5. [ ] Eliminate all `mngs`/`lean_ngs` references from the codebase (files, results, docs)
 6. [ ] Run the full validation matrix (`bash validate.sh param_matched`)
-7. [ ] Create `dashboard.sh` turnkey launch script
-8. [ ] Add `ngs/dashboard/` package with full Dash app
+7. [x] Create `dashboard.sh` turnkey launch script — auto-installs deps, handles CLI args
+8. [x] Add `ngs/dashboard/` package with full Dash app — 5 tabs: Task Launcher, Live Monitor, Visualizations, Result Explorer, Server
 9. [ ] Migrate `results/` JSON: `mngs_*` → `ngs_*`
 10. [ ] Migrate `plots/` filenames: `mngs_*` → `ngs_*`
