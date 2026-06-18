@@ -76,6 +76,23 @@ Hypernetwork codes compress client updates; factorized routing isolates client-s
 
 ---
 
+## Checkpointing & Export
+
+```python
+from ngs.models.ngs import NGSModel, build_ngs
+from ngs.core.interfaces import NGSConfig
+
+# Save checkpoint
+model.save_checkpoint('checkpoint.pt', optimizer=optimizer, epoch=10)
+
+# Load checkpoint
+model, meta = NGSModel.load_checkpoint('checkpoint.pt', device='cuda')
+print(meta['epoch'])  # 10
+
+# Export to ONNX
+model.export_onnx('model.onnx')
+```
+
 ## Quick Start
 
 ```bash

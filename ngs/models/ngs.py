@@ -5,6 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Tuple, Optional, Dict, Any
 from types import SimpleNamespace
+from pathlib import Path
+import json
 
 from ngs.core.interfaces import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
 from ngs.modules.routers import build_router
@@ -313,6 +315,77 @@ class NGSModel(nn.Module):
         """Expand model capacity."""
         self.memory_manager.expand_buffers(self, new_max_k)
         self.config.max_k = new_max_k
+
+    def save_checkpoint(self, path: str | Path, optimizer: torch.optim.Optimizer | None = None, 
+                        epoch: int | None = None, metadata: dict | None = None) -> None:
+        """Save model checkpoint."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        
+        checkpoint = {
+            'model_state_dict': self.state_dict(),
+            'config': self.config.__dict__,
+            'd_in': self.d_in,
+            'd_out': self.d_out,
+            'epoch': epoch,
+            'metadata': metadata or {},
+        }
+        if optimizer is not None:
+            checkpoint['optimizer_state_dict'] = optimizer.state_dict()
+        
+        torch.save(checkpoint, path)
+
+    @classmethod
+    def load_checkpoint(cls, path: str | Path, device: str = 'cpu', 
+                        optimizer: torch.optim.Optimizer | None = None,
+                        strict: bool = True) -> tuple['NGSModel', dict]:
+        """Load model checkpoint."""
+        path = Path(path)
+        checkpoint = torch.load(path, map_location=device, weights_only=False)
+        
+        config = NGSConfig(**checkpoint['config'])
+        model = cls(checkpoint['d_in'], checkpoint['d_out'], config)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        model.to(device)
+        
+        if optimizer is not None and 'optimizer_state_dict' in checkpoint:
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        metadata = checkpoint.get('metadata', {})
+        epoch = checkpoint.get('epoch')
+        
+        return model, {'epoch': epoch, 'metadata': metadata}
+
+    def export_onnx(self, path: str | Path, input_shape: tuple = (1, 784), 
+                    opset_version: int = 17) -> None:
+        """Export model to ONNX format.
+        
+        Raises:
+            RuntimeError: If ONNX export fails (e.g., due to PyTorch version incompatibility).
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        
+        self.eval()
+        dummy_input = torch.randn(*input_shape)
+        
+        try:
+            torch.onnx.export(
+                self,
+                dummy_input,
+                path,
+                export_params=True,
+                opset_version=opset_version,
+                do_constant_folding=True,
+                input_names=['input'],
+                output_names=['logits'],
+                dynamic_axes={'input': {0: 'batch_size'}, 'logits': {0: 'batch_size'}},
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"ONNX export failed. This may be due to PyTorch version incompatibility "
+                f"(detected: {torch.__version__}). Error: {e}"
+            ) from e
 
 
 def build_ngs(d_in: int, d_out: int, config: NGSConfig) -> NGSModel:

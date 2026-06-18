@@ -10,6 +10,15 @@ from abc import ABC, abstractmethod
 import random
 import math
 
+try:
+    import triton
+    import triton.language as tl
+    TRITON_AVAILABLE = True
+except ImportError:
+    TRITON_AVAILABLE = False
+    triton = None
+    tl = None
+
 from ngs.core.interfaces import NGSConfig, RoutingOutput
 
 
@@ -373,6 +382,84 @@ class TritonKernelConfig:
     num_stages: int = 3
 
 
+if TRITON_AVAILABLE:
+    @triton.jit
+    def _mahalanobis_diagonal_kernel(
+        x_ptr, mu_ptr, sigma_inv_ptr, out_ptr,
+        B, K, D,
+        BLOCK_SIZE: tl.constexpr,
+    ):
+        pid = tl.program_id(0)
+        num_pid = tl.num_programs(0)
+        
+        for idx in range(pid, B * K, num_pid):
+            b = idx // K
+            k = idx % K
+            
+            dist = 0.0
+            for d in range(0, D, BLOCK_SIZE):
+                d_end = min(d + BLOCK_SIZE, D)
+                x_slice = tl.load(x_ptr + b * D + d)
+                mu_slice = tl.load(mu_ptr + k * D + d)
+                sigma_slice = tl.load(sigma_inv_ptr + k * D + d)
+                
+                diff = x_slice - mu_slice
+                dist += tl.sum(diff * diff * sigma_slice)
+            
+            tl.store(out_ptr + idx, dist)
+
+    @triton.jit
+    def _mahalanobis_full_kernel(
+        x_ptr, mu_ptr, sigma_inv_ptr, out_ptr,
+        B, K, D,
+        BLOCK_SIZE: tl.constexpr,
+    ):
+        pid = tl.program_id(0)
+        num_pid = tl.num_programs(0)
+        
+        for idx in range(pid, B * K, num_pid):
+            b = idx // K
+            k = idx % K
+            
+            dist = 0.0
+            for i in range(D):
+                diff_i = tl.load(x_ptr + b * D + i) - tl.load(mu_ptr + k * D + i)
+                sum_j = 0.0
+                for j in range(D):
+                    diff_j = tl.load(x_ptr + b * D + j) - tl.load(mu_ptr + k * D + j)
+                    sigma_ij = tl.load(sigma_inv_ptr + k * D * D + i * D + j)
+                    sum_j += sigma_ij * diff_j
+                dist += diff_i * sum_j
+            
+            tl.store(out_ptr + idx, dist)
+
+    @triton.jit
+    def _lora_matmul_kernel(
+        x_ptr, W_ptr, A_ptr, B_ptr, out_ptr,
+        B_size, D_in, D_out, r, alpha,
+        BLOCK_SIZE: tl.constexpr,
+    ):
+        pid = tl.program_id(0)
+        num_pid = tl.num_programs(0)
+        
+        for idx in range(pid, B_size * D_out, num_pid):
+            b = idx // D_out
+            d_out = idx % D_out
+            
+            result = 0.0
+            for d_in in range(D_in):
+                w = tl.load(W_ptr + d_out * D_in + d_in)
+                lora = 0.0
+                for i in range(r):
+                    a_val = tl.load(A_ptr + d_out * r + i)
+                    b_val = tl.load(B_ptr + i * D_in + d_in)
+                    lora += a_val * b_val
+                x_val = tl.load(x_ptr + b * D_in + d_in)
+                result += x_val * (w + alpha * lora)
+            
+            tl.store(out_ptr + idx, result)
+
+
 class MahalanobisKernel:
     """
     Triton kernel for batched Mahalanobis distance computation.
@@ -380,50 +467,6 @@ class MahalanobisKernel:
     Computes: (x - mu)^T * Sigma^-1 * (x - mu) for batches of Gaussians.
     Optimized for routing where we compute distances to all units.
     """
-    
-    @staticmethod
-    def get_kernel_source() -> str:
-        return '''
-#include <cuda_fp16.h>
-#include <cuda_runtime.h>
-
-extern "C" __global__ void mahalanobis_kernel(
-    const float* __restrict__ x,        // [B, D]
-    const float* __restrict__ mu,       // [K, D]
-    const float* __restrict__ sigma_inv, // [K, D, D] or [K, D] for diagonal
-    float* __restrict__ output,         // [B, K]
-    int B, int K, int D,
-    bool is_diagonal
-) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= B * K) return;
-    
-    int b = idx / K;
-    int k = idx % K;
-    
-    float dist = 0.0f;
-    
-    if (is_diagonal) {
-        for (int d = 0; d < D; ++d) {
-            float diff = x[b * D + d] - mu[k * D + d];
-            float inv_var = sigma_inv[k * D + d];
-            dist += diff * diff * inv_var;
-        }
-    } else {
-        for (int i = 0; i < D; ++i) {
-            float diff_i = x[b * D + i] - mu[k * D + i];
-            float sum = 0.0f;
-            for (int j = 0; j < D; ++j) {
-                float diff_j = x[b * D + j] - mu[k * D + j];
-                sum += sigma_inv[k * D * D + i * D + j] * diff_j;
-            }
-            dist += diff_i * sum;
-        }
-    }
-    
-    output[idx] = dist;
-}
-'''
     
     @staticmethod
     def launch(
@@ -434,16 +477,35 @@ extern "C" __global__ void mahalanobis_kernel(
         config: TritonKernelConfig,
         is_diagonal: bool = True,
     ):
-        """Launch the Mahalanobis kernel (placeholder - requires Triton JIT)."""
+        """Launch the Mahalanobis kernel."""
+        if not TRITON_AVAILABLE:
+            raise RuntimeError("Triton not available. Install with `pip install triton`")
+        
         B, D = x.shape
         K = mu.shape[0]
+        grid = (B * K,)
+        
+        x = x.contiguous()
+        mu = mu.contiguous()
+        sigma_inv = sigma_inv.contiguous()
+        output = output.contiguous()
         
         if is_diagonal:
-            diff = x.unsqueeze(1) - mu.unsqueeze(0)
-            output.copy_((diff ** 2 * sigma_inv.unsqueeze(0)).sum(dim=-1))
+            _mahalanobis_diagonal_kernel[grid](
+                x, mu, sigma_inv, output,
+                B, K, D,
+                BLOCK_SIZE=config.block_size,
+                num_warps=config.num_warps,
+                num_stages=config.num_stages,
+            )
         else:
-            diff = x.unsqueeze(1) - mu.unsqueeze(0)
-            output.copy_(torch.einsum('bkd,kij,bkj->bk', diff, sigma_inv, diff))
+            _mahalanobis_full_kernel[grid](
+                x, mu, sigma_inv, output,
+                B, K, D,
+                BLOCK_SIZE=config.block_size,
+                num_warps=config.num_warps,
+                num_stages=config.num_stages,
+            )
 
 
 class LoRAKernel:
@@ -452,41 +514,6 @@ class LoRAKernel:
     
     Computes: x @ (W + A @ B) where A: [D, r], B: [r, D], r << D
     """
-    
-    @staticmethod
-    def get_kernel_source() -> str:
-        return '''
-#include <cuda_fp16.h>
-#include <cuda_runtime.h>
-
-extern "C" __global__ void lora_matmul_kernel(
-    const float* __restrict__ x,      // [B, D]
-    const float* __restrict__ W,      // [D, D] or [D_out, D_in]
-    const float* __restrict__ A,      // [D, r] or [D_out, r]
-    const float* __restrict__ B,      // [r, D] or [r, D_in]
-    float* __restrict__ output,       // [B, D_out]
-    int B_size, int D_in, int D_out, int r,
-    float alpha
-) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= B_size * D_out) return;
-    
-    int b = idx / D_out;
-    int d_out = idx % D_out;
-    
-    float result = 0.0f;
-    for (int d_in = 0; d_in < D_in; ++d_in) {
-        float w = W[d_out * D_in + d_in];
-        float lora = 0.0f;
-        for (int i = 0; i < r; ++i) {
-            lora += A[d_out * r + i] * B[i * D_in + d_in];
-        }
-        result += x[b * D_in + d_in] * (w + alpha * lora);
-    }
-    
-    output[idx] = result;
-}
-'''
     
     @staticmethod
     def launch(
@@ -498,14 +525,28 @@ extern "C" __global__ void lora_matmul_kernel(
         config: TritonKernelConfig,
         alpha: float = 1.0,
     ):
-        """Launch the LoRA kernel (placeholder - requires Triton JIT)."""
+        """Launch the LoRA kernel."""
+        if not TRITON_AVAILABLE:
+            raise RuntimeError("Triton not available. Install with `pip install triton`")
+        
         B_size, D_in = x.shape
         D_out = W.shape[0]
         r = A.shape[1]
+        grid = (B_size * D_out,)
         
-        base = x @ W.t()
-        lora = (x @ A) @ B
-        output.copy_(base + alpha * lora)
+        x = x.contiguous()
+        W = W.contiguous()
+        A = A.contiguous()
+        B = B.contiguous()
+        output = output.contiguous()
+        
+        _lora_matmul_kernel[grid](
+            x, W, A, B, output,
+            B_size, D_in, D_out, r, alpha,
+            BLOCK_SIZE=config.block_size,
+            num_warps=config.num_warps,
+            num_stages=config.num_stages,
+        )
 
 
 def build_symbolic_extractor(

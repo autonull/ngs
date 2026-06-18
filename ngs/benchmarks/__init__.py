@@ -14,6 +14,7 @@ from .online_cl import run_online_cl_benchmark
 from .class_incremental import run_class_incremental_benchmark
 from .gossip import run_gossip_benchmark
 from .comparison import run_comparison_benchmark
+from .extended import run_vision_benchmark, run_nlp_benchmark, run_robotics_benchmark, run_extended_benchmark
 
 __all__ = [
     "run_density_benchmark",
@@ -30,4 +31,8 @@ __all__ = [
     "run_class_incremental_benchmark",
     "run_gossip_benchmark",
     "run_comparison_benchmark",
+    "run_vision_benchmark",
+    "run_nlp_benchmark",
+    "run_robotics_benchmark",
+    "run_extended_benchmark",
 ]
