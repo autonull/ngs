@@ -1,0 +1,36 @@
+# NGS-Ultra: LSH routing, LoRA parameter storage, Heuristic topology, StrictCapacity memory
+# Extreme scale configuration for very large models
+experiment: split_mnist
+scenario: class_incremental
+n_tasks: 5
+classes_per_task: 2
+input_dim: 784
+output_dim: 10
+
+model:
+  latent_dim: 64
+  k_init: 256
+  max_k: 2048
+  top_k: 8
+  routing: lsh_approximate
+  parameter_storage: lora
+  topology_control: discrete_heuristic
+  memory_management: strict_capacity
+  lora_rank: 4
+  use_lora: true
+  num_subspaces: 4
+  split_threshold: 0.05
+  prune_threshold: 0.01
+
+training:
+  lr: 0.001
+  weight_decay: 0.0001
+  epochs_per_task: 2
+  batch_size: 256
+  replay_size: 50000
+  replay_ratio: 1.0
+  kd_weight: 10.0
+  kd_temperature: 2.0
+  entropy_weight: 0.01
+  diversity_weight: 0.01
+  adapt_every_epoch: true

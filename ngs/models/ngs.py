@@ -289,15 +289,34 @@ class NGSModel(nn.Module):
     
     def diversity_loss(self) -> torch.Tensor:
         """Push Gaussian means apart to encourage coverage."""
-        if not hasattr(self.router, 'active_mask'):
+        router = self.router
+        if not hasattr(router, 'active_mask') or not hasattr(router, 'mu'):
             return torch.tensor(0.0, device=self.p_down.weight.device)
-        
-        active_idx = self.router.active_mask.nonzero(as_tuple=True)[0]
+
+        active_idx = router.active_mask.nonzero(as_tuple=True)[0]
         if len(active_idx) < 2:
             return torch.tensor(0.0, device=self.p_down.weight.device)
-        
-        mu = self.router.mu[active_idx]  # [K, d]
-        dist = torch.cdist(mu, mu, p=2)  # [K, K]
+
+        # FactorizedRouter: mu is (num_subspaces, units_per_space, d_sub)
+        if hasattr(router, 'num_subspaces') and hasattr(router, 'units_per_space'):
+            losses = []
+            for s in range(router.num_subspaces):
+                start = s * router.units_per_space
+                end = start + router.units_per_space
+                sub_active = router.active_mask[start:end].nonzero(as_tuple=True)[0]
+                if len(sub_active) < 2:
+                    continue
+                mu_s = router.mu[s][sub_active]
+                dist = torch.cdist(mu_s, mu_s, p=2)
+                eye = ~torch.eye(len(sub_active), dtype=torch.bool, device=mu_s.device)
+                losses.append(-dist[eye].min())
+            if not losses:
+                return torch.tensor(0.0, device=self.p_down.weight.device)
+            return torch.stack(losses).mean()
+
+        # Monolithic / GaussianAttention / UncertaintyAware: mu is (max_k, latent_dim)
+        mu = router.mu[active_idx]
+        dist = torch.cdist(mu, mu, p=2)
         mask = ~torch.eye(len(active_idx), dtype=torch.bool, device=mu.device)
         min_dist = dist[mask].min()
         return -min_dist

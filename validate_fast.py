@@ -20,8 +20,8 @@ FAST_CONFIG = {
         'rotated_mnist',    # domain-inc (10 tasks)
     ],
     'models': [
-        'mngs_cfg_net',     # best MNGS
-        'mngs_baseline',    # ablation
+        'ngs_cfg_net',     # best NGS
+        'ngs_baseline',    # ablation
         'mlp', 'er', 'ewc', 'si', 'lwf',  # baselines
     ]
 }
@@ -60,11 +60,11 @@ def main():
     test_cmd = [
         sys.executable, '-m', 'experiments.main',
         '--experiments', 'split_mnist',
-        '--models', 'mngs_cfg_net',
+        '--models', 'ngs_cfg_net',
         '--seeds', '42',
         '--no-verbose'
     ]
-    if not run_with_progress(test_cmd, "SMOKE TEST: split_mnist / mngs_cfg_net / seed 42"):
+    if not run_with_progress(test_cmd, "SMOKE TEST: split_mnist / ngs_cfg_net / seed 42"):
         print("Smoke test failed!")
         return 1
     

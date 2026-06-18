@@ -19,7 +19,6 @@ from experiments.metrics import (
     compute_metrics, run_continual_evaluation, evaluate_model_on_task, print_results
 )
 from experiments.trainers import get_trainer
-from experiments.lean_ngs_trainer import train_lean_ngs, create_lean_ngs
 from experiments.mngs_trainer import train_mngs, create_mngs, create_mngs_from_profile, PROFILE_TRAIN_CONFIGS
 
 
@@ -46,13 +45,9 @@ def run_experiment(
     device = config.device
 
     # Create model
-    if model_name == 'lean_ngs':
-        model = create_lean_ngs(config.input_dim, config.output_dim, **asdict(config.model))
-        train_fn = train_lean_ngs
-        train_kwargs = as_train_kwargs(config.train)
-    elif model_name.startswith('mngs_'):
-        # Parse profile name (e.g., 'mngs_baseline')
-        profile = model_name[5:]
+    if model_name.startswith('ngs_'):
+        # Parse profile name (e.g., 'ngs_baseline')
+        profile = model_name[4:]
         try:
             model = create_mngs_from_profile(profile, config.input_dim, config.output_dim)
         except ValueError as e:
@@ -68,11 +63,9 @@ def run_experiment(
         train_fn = get_trainer(model_name)
         train_kwargs = as_train_kwargs(config.train)
 
-    # Setup replay buffer for ER/LeanNGS/MNGS
+    # Setup replay buffer for ER/NGS
     replay_buffer = None
-    mngs_models = ['mngs_baseline', 'mngs_cfg_net', 'mngs_ultra_edge', 'mngs_abl_hyper',
-                   'mngs_baseline_lora', 'mngs_cfg_net_lora', 'mngs_abl_hyper_lora']
-    if model_name in mngs_models or model_name.startswith('mngs_') or model_name in ['er', 'lean_ngs']:
+    if model_name.startswith('ngs_') or model_name == 'er':
         replay_buffer = ReplayBuffer(max_size=config.train.replay_size)
 
     # Pre-create all task loaders once (efficient for split datasets)
@@ -128,9 +121,9 @@ def run_experiment(
 
         # Train
         train_kwargs['replay_buffer'] = replay_buffer
-        mngs_models = ['mngs_baseline', 'mngs_cfg_net', 'mngs_ultra_edge', 'mngs_abl_hyper',
-                       'mngs_baseline_lora', 'mngs_cfg_net_lora', 'mngs_abl_hyper_lora']
-        if model_name in ['lean_ngs', 'lwf'] + mngs_models or model_name.startswith('mngs_'):
+        ngs_models = ['ngs_baseline', 'ngs_cfg_net', 'ngs_ultra_edge', 'ngs_abl_hyper',
+                      'ngs_baseline_lora', 'ngs_cfg_net_lora', 'ngs_abl_hyper_lora']
+        if model_name in ['lwf'] + ngs_models or model_name.startswith('ngs_'):
             train_kwargs['old_model'] = old_model
         train_fn(model, train_loader, task_id, device=device, **train_kwargs)
 
@@ -155,7 +148,7 @@ def run_experiment(
                 replay_buffer.add(x_flat, torch.nn.functional.one_hot(y, num_classes=config.output_dim).float())
 
         # Save old model for KD/LwF
-        if model_name in ['lean_ngs', 'lwf'] or model_name.startswith('mngs_'):
+        if model_name in ['lwf'] or model_name.startswith('ngs_'):
             old_model = deepcopy(model)
             old_model.eval()
             for p in old_model.parameters():
@@ -175,9 +168,7 @@ def run_experiment(
     # Compute metrics
     metrics = compute_metrics(accuracy_matrix, random_baseline=1.0 / config.output_dim)
     metrics.active_units = active_units_list[-1] if active_units_list else 0
-    metrics.max_units = config.model.max_k if model_name == 'lean_ngs' else (
-        model.config.max_k if hasattr(model, 'config') and hasattr(model.config, 'max_k') else 0
-    )
+    metrics.max_units = model.config.max_k if hasattr(model, 'config') and hasattr(model.config, 'max_k') else 0
 
     # Save results
     os.makedirs(output_dir, exist_ok=True)

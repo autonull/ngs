@@ -11,9 +11,9 @@ import numpy as np
 from pathlib import Path
 import json
 
-from mngs.core.config import MNGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
-from mngs import build_mngs
-from mngs.training.trainer import NGSTrainer, TrainConfig as TrainerConfig
+from ngs.core.interfaces import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
+from ngs.models import build_ngs
+from ngs.training import NGSTrainer, TrainerConfig
 from experiments.datasets import get_task_loaders, PermutedMNIST, ReplayBuffer
 from experiments.metrics import compute_metrics, evaluate_model_on_task
 import copy
@@ -29,9 +29,9 @@ def set_seed(seed: int):
     torch.backends.cudnn.benchmark = False
 
 
-def get_config(args) -> MNGSConfig:
-    """Create MNGSConfig from args."""
-    return MNGSConfig(
+def get_config(args) -> NGSConfig:
+    """Create NGSConfig from args."""
+    return NGSConfig(
         latent_dim=args.latent_dim,
         k_init=args.k_init,
         max_k=args.max_k,
@@ -51,19 +51,12 @@ def get_config(args) -> MNGSConfig:
     )
 
 
-def run_split_mnist(args, config, device):
-    """Run Split-MNIST continual learning."""
-    n_tasks = 5
-    classes_per_task = 2
-    
-    model = build_mngs(784, 10, config).to(device)
-    
-    trainer_config = TrainerConfig(
+def _make_trainer_config(args):
+    return TrainerConfig(
         lr=args.lr,
         weight_decay=args.weight_decay,
         epochs=args.epochs_per_task,
         batch_size=args.batch_size,
-        replay_size=args.replay_size,
         replay_ratio=args.replay_ratio,
         kd_weight=args.kd_weight,
         kd_temperature=args.kd_temperature,
@@ -71,9 +64,17 @@ def run_split_mnist(args, config, device):
         prune_thresh=args.prune_thresh,
         max_spawn_per_call=args.max_spawn,
         adapt_every_epoch=args.adapt_every_epoch,
-        device=device,
     )
+
+
+def run_split_mnist(args, config, device):
+    """Run Split-MNIST continual learning."""
+    n_tasks = 5
+    classes_per_task = 2
     
+    model = build_ngs(784, 10, config).to(device)
+    
+    trainer_config = _make_trainer_config(args)
     trainer = NGSTrainer(model, trainer_config, device=device)
     replay_buffer = ReplayBuffer(max_size=args.replay_size) if args.replay_size > 0 else None
     
@@ -128,24 +129,9 @@ def run_permuted_mnist(args, config, device):
     """Run Permuted-MNIST continual learning."""
     n_tasks = 10
     
-    model = build_mngs(784, 10, config).to(device)
+    model = build_ngs(784, 10, config).to(device)
     
-    trainer_config = TrainerConfig(
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-        epochs=args.epochs_per_task,
-        batch_size=args.batch_size,
-        replay_size=args.replay_size,
-        replay_ratio=args.replay_ratio,
-        kd_weight=args.kd_weight,
-        kd_temperature=args.kd_temperature,
-        split_thresh=args.split_thresh,
-        prune_thresh=args.prune_thresh,
-        max_spawn_per_call=args.max_spawn,
-        adapt_every_epoch=args.adapt_every_epoch,
-        device=device,
-    )
-    
+    trainer_config = _make_trainer_config(args)
     trainer = NGSTrainer(model, trainer_config, device=device)
     replay_buffer = ReplayBuffer(max_size=args.replay_size) if args.replay_size > 0 else None
     permuted = PermutedMNIST(n_tasks=n_tasks, seed=args.seed)
@@ -206,20 +192,9 @@ def run_split_cifar100(args, config, device):
     config.max_k = args.max_k
     config.top_k = args.top_k
     
-    model = build_mngs(d_in, d_out, config).to(device)
+    model = build_ngs(d_in, d_out, config).to(device)
     
-    trainer_config = TrainerConfig(
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-        epochs=args.epochs_per_task,
-        batch_size=args.batch_size,
-        replay_size=args.replay_size,
-        replay_ratio=args.replay_ratio,
-        kd_weight=args.kd_weight,
-        kd_temperature=args.kd_temperature,
-        device=device,
-    )
-    
+    trainer_config = _make_trainer_config(args)
     trainer = NGSTrainer(model, trainer_config, device=device)
     replay_buffer = ReplayBuffer(max_size=args.replay_size) if args.replay_size > 0 else None
     
@@ -281,13 +256,13 @@ def main():
     parser.add_argument("--max-k", type=int, default=512)
     parser.add_argument("--top-k", type=int, default=8)
     parser.add_argument("--routing", default="factorized_subspace", 
-                        choices=["monolithic_mahalanobis", "factorized_subspace", "lsh_approximate"])
+                        choices=["monolithic_mahalanobis", "factorized_subspace", "lsh_approximate", "hierarchical", "gaussian_attention", "uncertainty_aware"])
     parser.add_argument("--param-storage", default="hypernetwork_generated",
-                        choices=["direct_adapter", "hypernetwork_generated"])
+                        choices=["direct_adapter", "hypernetwork_generated", "lora"])
     parser.add_argument("--topology", default="continuous_density",
-                        choices=["discrete_heuristic", "continuous_density"])
-    parser.add_argument("--memory", default="pre_allocated_masked",
-                        choices=["dynamic_growth", "pre_allocated_masked", "strict_capacity"])
+                        choices=["discrete_heuristic", "continuous_density", "merge_aware", "meta_learned"])
+    parser.add_argument("--memory", default="pre_allocated",
+                        choices=["dynamic", "pre_allocated", "strict_capacity"])
     parser.add_argument("--hypernet-code-dim", type=int, default=8)
     parser.add_argument("--use-lora", action="store_true", default=True)
     parser.add_argument("--lora-rank", type=int, default=4)

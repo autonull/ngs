@@ -1,0 +1,37 @@
+# NGS-Attention: GaussianAttention routing, DirectAdapter, ContinuousDensity topology, PreAlloc memory
+# Uncertainty-aware routing with Gaussian attention mechanism
+experiment: split_mnist
+scenario: class_incremental
+n_tasks: 5
+classes_per_task: 2
+input_dim: 784
+output_dim: 10
+
+model:
+  latent_dim: 32
+  k_init: 128
+  max_k: 512
+  top_k: 8
+  routing: gaussian_attention
+  parameter_storage: direct_adapter
+  topology_control: continuous_density
+  memory_management: pre_allocated
+  attention_heads: 4
+  attention_dropout: 0.1
+  sparse_top_k: 64
+  num_subspaces: 4
+  split_threshold: 0.05
+  prune_threshold: 0.01
+
+training:
+  lr: 0.001
+  weight_decay: 0.0001
+  epochs_per_task: 2
+  batch_size: 256
+  replay_size: 50000
+  replay_ratio: 1.0
+  kd_weight: 10.0
+  kd_temperature: 2.0
+  entropy_weight: 0.01
+  diversity_weight: 0.01
+  adapt_every_epoch: true

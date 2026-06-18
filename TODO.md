@@ -4,15 +4,6 @@
 
 ---
 
-## Phase 0: Documentation Consistency (Immediate)
-
-- [ ] **Fix README.md ↔ architecture.rst inconsistency**
-  - README claims 3×3×3×3=81 configs; actual: 6 routing × 3 param storage × 4 topology × 3 memory = **216 configurations**
-  - Update strategy tables in README to match architecture.rst (6 routers, not 3)
-  - Make README the single source of truth; deprecate architecture.rst or auto-generate from README
-
----
-
 ## Phase 1: Core Benchmarking Infrastructure
 
 ### 1.1 Unified Experiment Runner

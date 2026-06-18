@@ -47,9 +47,9 @@ Preset Configurations
        k_init=16,
        latent_dim=32,
        routing=RoutingStrategy.FACTORIZED_SUBSPACE,
-       parameter_storage=ParameterStorage.LOW_RANK_ADAPTER,
-       topology_control=TopologyControl.CONTINUOUS_DENSITY,
-       memory_management=MemoryManagement.DYNAMIC_GROWTH,
+        parameter_storage=ParameterStorage.LORA,
+        topology_control=TopologyControl.CONTINUOUS_DENSITY,
+        memory_management=MemoryManagement.DYNAMIC,
    )
 
    # High-capacity config for continual learning
@@ -71,5 +71,5 @@ Preset Configurations
        routing=RoutingStrategy.UNCERTAINTY_AWARE,
        parameter_storage=ParameterStorage.DIRECT_ADAPTER,
        topology_control=TopologyControl.MERGE_AWARE,
-       memory_management=MemoryManagement.PRE_ALLOCATED_MASKED,
+        memory_management=MemoryManagement.PRE_ALLOCATED,
    )

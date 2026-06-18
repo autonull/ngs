@@ -26,11 +26,10 @@ EXPERIMENTS = [
     'digits', 'split_cifar100_20', 'full_mnist', 'tinyshakespeare'
 ]
 
-MODELS_MNGS_PM = ["mngs_baseline", "mngs_cfg_net", "mngs_abl_hyper"]
-MODELS_MNGS_LORA = ["mngs_baseline_lora", "mngs_cfg_net_lora", "mngs_abl_hyper_lora"]
+MODELS_NGS_PM = ["ngs_baseline", "ngs_cfg_net", "ngs_abl_hyper"]
+MODELS_NGS_LORA = ["ngs_baseline_lora", "ngs_cfg_net_lora", "ngs_abl_hyper_lora"]
 MODELS_BASELINES = ["mlp", "er", "ewc", "si", "lwf", "lora"]
-MODELS_LEAN = ["lean_ngs"]
-ALL_MODELS = MODELS_MNGS_PM + MODELS_MNGS_LORA + MODELS_BASELINES + MODELS_LEAN
+ALL_MODELS = MODELS_NGS_PM + MODELS_NGS_LORA + MODELS_BASELINES
 
 SEEDS = [42, 123, 456]
 
@@ -240,20 +239,18 @@ def main():
     parser.add_argument('--epochs', type=int, default=2)
     parser.add_argument('--fast', action='store_true', help='Run 1-epoch smoke test first (seed 0 only)')
     parser.add_argument('--max-jobs', type=int, help='Limit total jobs')
-    parser.add_argument('--phase', choices=['mngs_pm', 'mngs_lora', 'baselines', 'lean', 'all'], 
+    parser.add_argument('--phase', choices=['ngs_pm', 'ngs_lora', 'baselines', 'all'], 
                        help='Preset model groups')
     
     args = parser.parse_args()
     
     # Phase presets
-    if args.phase == 'mngs_pm':
-        args.models = MODELS_MNGS_PM
-    elif args.phase == 'mngs_lora':
-        args.models = MODELS_MNGS_LORA
+    if args.phase == 'ngs_pm':
+        args.models = MODELS_NGS_PM
+    elif args.phase == 'ngs_lora':
+        args.models = MODELS_NGS_LORA
     elif args.phase == 'baselines':
         args.models = MODELS_BASELINES
-    elif args.phase == 'lean':
-        args.models = MODELS_LEAN
     elif args.phase == 'all':
         args.models = ALL_MODELS
     

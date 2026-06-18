@@ -1,7 +1,7 @@
 #!/bin/bash
-# MNGS Validation Script - Run the full experimental validation matrix
+# NGS Validation Script - Run the full experimental validation matrix
 # Usage: ./validate.sh [stage]
-# Stages: smoke, m3_2, m3_3, m3_3_lora, m3_4, m3_5, m3_6, m3_7, all, param_matched
+# Stages: smoke, param_matched, m3_2, m3_3, m3_3_lora, m3_4, m3_5, m3_6, m3_7, all
 
 set -euo pipefail
 
@@ -28,21 +28,20 @@ EXPERIMENTS=(
 )
 
 # Model groups - parameter-matched (for fair comparison with baselines ~513K params)
-MODELS_MNGS_PM=("mngs_baseline" "mngs_cfg_net" "mngs_abl_hyper")
+MODELS_NGS_PM=("ngs_baseline" "ngs_cfg_net" "ngs_abl_hyper")
 # Model groups - LoRA efficient versions
-MODELS_MNGS_LORA=("mngs_baseline_lora" "mngs_cfg_net_lora" "mngs_abl_hyper_lora")
+MODELS_NGS_LORA=("ngs_baseline_lora" "ngs_cfg_net_lora" "ngs_abl_hyper_lora")
 # Baselines
-MODELS_LEAN=("lean_ngs")
 MODELS_BASELINES=("mlp" "er" "ewc" "si" "lwf" "lora")
 
 EXP_STR="${EXPERIMENTS[*]}"
 
 case "$STAGE" in
     smoke)
-        echo "=== SMOKE TEST: 1 epoch, 1 seed, all MNGS profiles ==="
+        echo "=== SMOKE TEST: 1 epoch, 1 seed, all NGS profiles ==="
         python -m experiments.main \
             --experiments split_mnist \
-            --models ${MODELS_MNGS_PM[*]} ${MODELS_MNGS_LORA[*]} \
+            --models ${MODELS_NGS_PM[*]} ${MODELS_NGS_LORA[*]} \
             --seeds 42 \
             --output-dir "$OUT_DIR" \
             --plots-dir "$PLOTS_DIR" \
@@ -50,41 +49,41 @@ case "$STAGE" in
         ;;
 
     param_matched)
-        echo "=== PARAMETER-MATCHED COMPARISON: MNGS (full adapters) vs Baselines ==="
-        echo "MNGS profiles use max_k=448, use_lora=False for ~513K params matching MLP [512,256]"
+        echo "=== PARAMETER-MATCHED COMPARISON: NGS (full adapters) vs Baselines ==="
+        echo "NGS profiles use max_k=448, use_lora=False for ~513K params matching MLP [512,256]"
         python -m experiments.main \
             --experiments $EXP_STR \
-            --models ${MODELS_MNGS_PM[*]} ${MODELS_BASELINES[*]} \
+            --models ${MODELS_NGS_PM[*]} ${MODELS_BASELINES[*]} \
             --seeds ${SEEDS[*]} \
             --output-dir "$OUT_DIR" \
             --plots-dir "$PLOTS_DIR"
         ;;
 
     m3_2)
-        echo "=== M3.2: Baseline LeanNGS on all datasets ==="
+        echo "=== M3.2: Baseline NGS on all datasets ==="
         python -m experiments.main \
             --experiments $EXP_STR \
-            --models ${MODELS_LEAN[*]} \
+            --models ${MODELS_NGS_PM[*]} \
             --seeds ${SEEDS[*]} \
             --output-dir "$OUT_DIR" \
             --plots-dir "$PLOTS_DIR"
         ;;
 
     m3_3)
-        echo "=== M3.3: All MNGS profiles (param-matched) on all datasets ==="
+        echo "=== M3.3: All NGS profiles (param-matched) on all datasets ==="
         python -m experiments.main \
             --experiments $EXP_STR \
-            --models ${MODELS_MNGS_PM[*]} \
+            --models ${MODELS_NGS_PM[*]} \
             --seeds ${SEEDS[*]} \
             --output-dir "$OUT_DIR" \
             --plots-dir "$PLOTS_DIR"
         ;;
 
     m3_3_lora)
-        echo "=== M3.3 LoRA: All MNGS profiles (LoRA efficient) on all datasets ==="
+        echo "=== M3.3 LoRA: All NGS profiles (LoRA efficient) on all datasets ==="
         python -m experiments.main \
             --experiments $EXP_STR \
-            --models ${MODELS_MNGS_LORA[*]} \
+            --models ${MODELS_NGS_LORA[*]} \
             --seeds ${SEEDS[*]} \
             --output-dir "$OUT_DIR" \
             --plots-dir "$PLOTS_DIR"
@@ -130,11 +129,11 @@ case "$STAGE" in
         echo "This will take many hours. Running stages sequentially..."
         
         echo ""
-        echo "Stage 1/5: M3.2 - Baseline LeanNGS"
+        echo "Stage 1/5: M3.2 - Baseline NGS"
         $0 m3_2
         
         echo ""
-        echo "Stage 2/5: M3.3 - MNGS Profiles (param-matched)"
+        echo "Stage 2/5: M3.3 - NGS Profiles (param-matched)"
         $0 m3_3
         
         echo ""
@@ -142,7 +141,7 @@ case "$STAGE" in
         $0 m3_4
         
         echo ""
-        echo "Stage 4/5: M3.3 LoRA - MNGS Profiles (LoRA efficient)"
+        echo "Stage 4/5: M3.3 LoRA - NGS Profiles (LoRA efficient)"
         $0 m3_3_lora
         
         echo ""

@@ -1,10 +1,10 @@
-# NGS (Neural Gaussian System)
+# Neural Gaussian Splatting (NGS)
 
 **A modular framework for adaptive, differentiable neural representations — built from the ground up on Gaussian mixture principles.**
 
 ---
 
-## The Core Idea: Neural Gaussian Splatting
+## The Core Idea: Splatting
 
 Gaussian Splatting revolutionized 3D reconstruction by representing scenes as **adaptive, differentiable Gaussians** instead of fixed meshes. NGS brings the same philosophy to neural computation:
 
@@ -76,23 +76,6 @@ Hypernetwork codes compress client updates; factorized routing isolates client-s
 
 ---
 
-## Checkpointing & Export
-
-```python
-from ngs.models.ngs import NGSModel, build_ngs
-from ngs.core.interfaces import NGSConfig
-
-# Save checkpoint
-model.save_checkpoint('checkpoint.pt', optimizer=optimizer, epoch=10)
-
-# Load checkpoint
-model, meta = NGSModel.load_checkpoint('checkpoint.pt', device='cuda')
-print(meta['epoch'])  # 10
-
-# Export to ONNX
-model.export_onnx('model.onnx')
-```
-
 ## Quick Start
 
 ```bash
@@ -128,60 +111,6 @@ python experiments/ablation.py --experiment split_mnist --output-dir ./ablation_
 
 # Run tests
 pytest tests/ -v
-```
-
----
-
-## Configuration
-
-All experiments configured via `NGSConfig` dataclass or YAML files in `configs/`:
-
-```python
-from ngs.core.interfaces import NGSConfig, RoutingStrategy
-
-config = NGSConfig(
-    latent_dim=32,
-    k_init=128,
-    max_k=512,
-    top_k=8,
-    routing=RoutingStrategy.FACTORIZED,
-    parameter_storage=ParameterStorage.HYPERNETWORK,
-    topology_control=TopologyControl.CONTINUOUS_DENSITY,
-    memory_management=MemoryManagement.PRE_ALLOCATED,
-    # Strategy-specific params
-    num_subspaces=4,
-    hypernetwork_code_dim=8,
-    use_lora=True,
-    lora_rank=4,
-    split_threshold=0.05,
-    merge_threshold=0.1,
-)
-```
-
----
-
-## Reproducibility
-
-All benchmarks support multi-seed runs with deterministic behavior:
-
-```bash
-# Run with multiple seeds
-python examples/train_cl.py --experiment split_mnist --seeds 42 123 456
-
-# Results include mean ± std across seeds
-# Saved to ./results/split_mnist_aggregated.json
-```
-
----
-
-## Citation
-
-```bibtex
-@article{ngs2024,
-  title={Neural Gaussian Systems: Modular Adaptive Representations with Factorized Routing and Continuous Density Topology},
-  author={...},
-  year={2024}
-}
 ```
 
 ---

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 Main entry point for continual learning experiments.
-Run: python -m experiments.main --experiments split_mnist split_fashion --models lean_ngs mlp er ewc --seeds 42 123
+Run: python -m experiments.main --experiments split_mnist split_fashion --models ngs_baseline mlp er ewc --seeds 42 123
 """
 import argparse
 import os
@@ -19,13 +19,13 @@ def main():
     parser.add_argument('--experiments', nargs='+', default=['split_mnist'],
                         choices=list(EXPERIMENTS.keys()),
                         help='Experiments to run')
-    mngs_models = [
-        'mngs_baseline', 'mngs_cfg_net', 'mngs_ultra_edge', 'mngs_abl_hyper',
-        'mngs_baseline_lora', 'mngs_cfg_net_lora', 'mngs_abl_hyper_lora'
+    ngs_models = [
+        'ngs_baseline', 'ngs_cfg_net', 'ngs_ultra_edge', 'ngs_abl_hyper',
+        'ngs_baseline_lora', 'ngs_cfg_net_lora', 'ngs_abl_hyper_lora'
     ]
-    all_models = ['lean_ngs', 'mlp', 'er', 'ewc', 'si', 'lwf', 'lora'] + mngs_models
+    all_models = ['mlp', 'er', 'ewc', 'si', 'lwf', 'lora'] + ngs_models
     
-    parser.add_argument('--models', nargs='+', default=['lean_ngs', 'mlp', 'er', 'ewc', 'si', 'lwf', 'lora'],
+    parser.add_argument('--models', nargs='+', default=['mlp', 'er', 'ewc', 'si', 'lwf', 'lora'],
                         choices=all_models,
                         help='Models to evaluate')
     parser.add_argument('--seeds', nargs='+', type=int, default=[42, 123, 456],

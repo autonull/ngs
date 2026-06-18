@@ -11,9 +11,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-from mngs.core.config import MNGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
-from mngs import build_mngs
-from mngs.training.trainer import NGSTrainer, TrainConfig as TrainerConfig
+from ngs.core.interfaces import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
+from ngs.models.ngs import build_ngs
+from ngs.training.trainer import NGSTrainer, TrainerConfig
 from experiments.datasets import get_task_loaders
 
 
@@ -24,7 +24,7 @@ def set_seed(seed: int):
 
 def generate_topology_dynamics_plot(args):
     """Generate topology dynamics over continual learning."""
-    config = MNGSConfig(
+    config = NGSConfig(
         routing=RoutingStrategy(args.routing),
         parameter_storage=ParameterStorage(args.param_storage),
         topology_control=TopologyControl(args.topology),
@@ -35,19 +35,21 @@ def generate_topology_dynamics_plot(args):
         latent_dim=args.latent_dim,
     )
 
-    model = build_mngs(784, 10, config)
+    model = build_ngs(784, 10, config)
+
+    from experiments.datasets import ReplayBuffer
+    replay_buffer = ReplayBuffer(max_size=args.replay_size)
 
     trainer_config = TrainerConfig(
         lr=args.lr,
         epochs=args.epochs_per_task,
         batch_size=args.batch_size,
-        replay_size=args.replay_size,
+        replay_buffer=replay_buffer,
         replay_ratio=args.replay_ratio,
         kd_weight=args.kd_weight,
-        device=args.device,
     )
 
-    trainer = NGSTrainer(model, trainer_config)
+    trainer = NGSTrainer(model, trainer_config, device=args.device)
 
     from experiments.datasets import ReplayBuffer
     replay_buffer = ReplayBuffer(max_size=args.replay_size)
@@ -71,7 +73,9 @@ def generate_topology_dynamics_plot(args):
 
         # Adapt topology and track events
         z_samples = torch.randn(200, args.latent_dim)
-        action = model.adapt_density(z_samples, split_thresh=0.05, prune_thresh=0.01)
+        action = model.adapt_density(
+            z_samples=z_samples, split_thresh=0.05, prune_thresh=0.01
+        )
 
         split_history.append(action[1])
         prune_history.append(action[0])
@@ -137,11 +141,11 @@ def generate_topology_dynamics_plot(args):
 
 def generate_routing_heatmap(args):
     """Generate routing heatmap for a trained model."""
-    config = MNGSConfig(
+    config = NGSConfig(
         routing=RoutingStrategy.FACTORIZED_SUBSPACE,
         parameter_storage=ParameterStorage.HYPERNETWORK_GENERATED,
         topology_control=TopologyControl.CONTINUOUS_DENSITY,
-        memory_management=MemoryManagement.PRE_ALLOCATED_MASKED,
+        memory_management=MemoryManagement.PRE_ALLOCATED,
         max_k=128,
         k_init=32,
         top_k=8,
@@ -149,11 +153,11 @@ def generate_routing_heatmap(args):
         num_subspaces=4,
     )
 
-    model = build_mngs(784, 10, config)
+    model = build_ngs(784, 10, config)
 
     # Quick train on one task
-    trainer_config = TrainerConfig(lr=1e-3, epochs=1, batch_size=256, device=args.device)
-    trainer = NGSTrainer(model, trainer_config)
+    trainer_config = TrainerConfig(lr=1e-3, epochs=1, batch_size=256)
+    trainer = NGSTrainer(model, trainer_config, device=args.device)
 
     train_loader, _, _ = get_task_loaders('split_mnist', 0, 2, 256)
     trainer.train_epoch(train_loader)
@@ -219,7 +223,7 @@ def main():
     parser.add_argument("--routing", default="factorized_subspace")
     parser.add_argument("--param-storage", default="hypernetwork_generated")
     parser.add_argument("--topology", default="continuous_density")
-    parser.add_argument("--memory", default="pre_allocated_masked")
+    parser.add_argument("--memory", default="pre_allocated")
     parser.add_argument("--max-k", type=int, default=512)
     parser.add_argument("--k-init", type=int, default=128)
     parser.add_argument("--top-k", type=int, default=8)
@@ -233,6 +237,8 @@ def main():
     args = parser.parse_args()
 
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+
+    set_seed(args.seed)
 
     print("Generating topology dynamics plot...")
     generate_topology_dynamics_plot(args)
