@@ -37,6 +37,17 @@ from ngs.modules.riemannian import (
     HypernetworkCodeManifold,
     build_riemannian_manifold,
 )
+from ngs.modules.advanced import (
+    SymbolicExtractor,
+    CrossModalFusion,
+    MetaMetaLearner,
+    MahalanobisKernel,
+    LoRAKernel,
+    TritonKernelConfig,
+    build_symbolic_extractor,
+    build_cross_modal_fusion,
+    build_meta_meta_learner,
+)
 
 __all__ = [
     "MonolithicRouter",
@@ -66,4 +77,13 @@ __all__ = [
     "RiemannianHypernetworkManifold",
     "HypernetworkCodeManifold",
     "build_riemannian_manifold",
+    "SymbolicExtractor",
+    "CrossModalFusion",
+    "MetaMetaLearner",
+    "MahalanobisKernel",
+    "LoRAKernel",
+    "TritonKernelConfig",
+    "build_symbolic_extractor",
+    "build_cross_modal_fusion",
+    "build_meta_meta_learner",
 ]

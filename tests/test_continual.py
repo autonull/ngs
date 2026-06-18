@@ -3,9 +3,9 @@
 import torch
 import pytest
 import numpy as np
-from mngs.core.config import MNGSConfig, TopologyControl, MemoryManagement
-from mngs import build_mngs
-from mngs.training.trainer import NGSTrainer, TrainConfig
+from ngs.core.interfaces import NGSConfig, TopologyControl, MemoryManagement
+from ngs.models import build_ngs
+from ngs.training.trainer import NGSTrainer, TrainerConfig
 
 
 class TestContinualLearning:
@@ -13,16 +13,16 @@ class TestContinualLearning:
 
     def test_multi_task_sequence(self):
         """Test training on sequence of tasks."""
-        config = MNGSConfig(
+        config = NGSConfig(
             max_k=128,
             k_init=32,
             latent_dim=32,
             topology_control=TopologyControl.CONTINUOUS_DENSITY,
         )
 
-        model = build_mngs(784, 10, config)
+        model = build_ngs(784, 10, config)
 
-        trainer_config = TrainConfig(
+        trainer_config = TrainerConfig(
             lr=1e-3,
             epochs=1,
             batch_size=64,
@@ -66,10 +66,10 @@ class TestContinualLearning:
 
     def test_knowledge_distillation(self):
         """Test KD prevents forgetting."""
-        config = MNGSConfig(max_k=128, k_init=32, latent_dim=32)
-        model = build_mngs(784, 10, config)
+        config = NGSConfig(max_k=128, k_init=32, latent_dim=32)
+        model = build_ngs(784, 10, config)
 
-        trainer_config = TrainConfig(
+        trainer_config = TrainerConfig(
             lr=1e-3,
             epochs=1,
             batch_size=64,
@@ -107,10 +107,10 @@ class TestContinualLearning:
 
     def test_replay_buffer(self):
         """Test replay buffer helps retention."""
-        config = MNGSConfig(max_k=128, k_init=32, latent_dim=32)
-        model = build_mngs(784, 10, config)
+        config = NGSConfig(max_k=128, k_init=32, latent_dim=32)
+        model = build_ngs(784, 10, config)
 
-        trainer_config = TrainConfig(
+        trainer_config = TrainerConfig(
             lr=1e-3,
             epochs=1,
             batch_size=64,
@@ -149,7 +149,7 @@ class TestContinualLearning:
 
     def test_topology_adaptation_during_cl(self):
         """Test topology adapts during continual learning."""
-        config = MNGSConfig(
+        config = NGSConfig(
             max_k=128,
             k_init=32,
             latent_dim=32,
@@ -158,9 +158,9 @@ class TestContinualLearning:
             prune_threshold=0.01,
         )
 
-        model = build_mngs(784, 10, config)
+        model = build_ngs(784, 10, config)
 
-        trainer_config = TrainConfig(
+        trainer_config = TrainerConfig(
             lr=1e-3,
             epochs=1,
             batch_size=64,
@@ -185,7 +185,7 @@ class TestContinualLearning:
 
     def test_capacity_saturation(self):
         """Test model handles capacity saturation."""
-        config = MNGSConfig(
+        config = NGSConfig(
             max_k=32,  # Small capacity
             k_init=16,
             latent_dim=32,
@@ -193,9 +193,9 @@ class TestContinualLearning:
             memory_management=MemoryManagement.STRICT_CAPACITY,
         )
 
-        model = build_mngs(784, 10, config)
+        model = build_ngs(784, 10, config)
 
-        trainer_config = TrainConfig(
+        trainer_config = TrainerConfig(
             lr=1e-3,
             epochs=1,
             batch_size=64,

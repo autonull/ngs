@@ -13,6 +13,7 @@ from .rapid_adaptation import run_rapid_adaptation_benchmark
 from .online_cl import run_online_cl_benchmark
 from .class_incremental import run_class_incremental_benchmark
 from .gossip import run_gossip_benchmark
+from .comparison import run_comparison_benchmark
 
 __all__ = [
     "run_density_benchmark",
@@ -28,4 +29,5 @@ __all__ = [
     "run_online_cl_benchmark",
     "run_class_incremental_benchmark",
     "run_gossip_benchmark",
+    "run_comparison_benchmark",
 ]

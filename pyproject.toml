@@ -1,23 +1,98 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "ngs"
 version = "0.1.0"
-description = "Neural Gaussian System"
+description = "Neural Gaussian Systems - Modular Adaptive Neural Networks"
 readme = "README.md"
+authors = [{name = "NGS Authors"}]
 license = {text = "MIT"}
-requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.9"
 dependencies = [
-    "torch>=2.0",
-    "numpy>=1.21",
-    "tqdm>=4.65",
+    "torch>=2.0.0",
+    "numpy>=1.24.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65.0",
+    "scipy>=1.10.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+viz = [
+    "matplotlib>=3.7.0",
+    "plotly>=5.15.0",
+    "dash>=2.14.0",
+]
+benchmarks = [
+    "scikit-learn>=1.3.0",
+    "gymnasium>=0.29.0",
+    "torchvision>=0.15.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme>=1.3.0",
+    "myst-parser>=2.0.0",
+    "sphinx-autodoc-typehints>=1.25.0",
+]
+docs = [
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme>=1.3.0",
+    "myst-parser>=2.0.0",
+    "sphinx-autodoc-typehints>=1.25.0",
+]
+all = [
+    "matplotlib>=3.7.0",
+    "plotly>=5.15.0",
+    "dash>=2.14.0",
+    "scikit-learn>=1.3.0",
+    "gymnasium>=0.29.0",
+    "torchvision>=0.15.0",
+]
 
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+[project.urls]
+Homepage = "https://github.com/ngs/ngs"
+Repository = "https://github.com/ngs/ngs"
+Documentation = "https://ngs.readthedocs.io"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ngs*", "experiments*", "tests*"]
+include = ["ngs*"]
+
+[tool.setuptools.package-data]
+ngs = ["configs/*.yaml", "configs/**/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = ["E", "F", "I", "UP", "W"]
+ignore = ["E501", "E402", "F401"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true

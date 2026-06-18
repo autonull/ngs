@@ -2,9 +2,9 @@
 
 import torch
 import pytest
-from mngs.core.config import MNGSConfig
-from mngs import build_mngs
-from mngs.training.trainer import NGSTrainer, TrainConfig
+from ngs.core.interfaces import NGSConfig
+from ngs.models import build_ngs
+from ngs.training.trainer import NGSTrainer, TrainerConfig
 
 
 class TestTrainer:
@@ -12,10 +12,10 @@ class TestTrainer:
 
     def test_trainer_creation(self):
         """Test trainer creation."""
-        config = MNGSConfig(max_k=64, k_init=16, latent_dim=32)
-        model = build_mngs(784, 10, config)
+        config = NGSConfig(max_k=64, k_init=16, latent_dim=32)
+        model = build_ngs(784, 10, config)
 
-        trainer_config = TrainConfig(
+        trainer_config = TrainerConfig(
             lr=1e-3,
             epochs=1,
             batch_size=32,
@@ -28,10 +28,10 @@ class TestTrainer:
 
     def test_trainer_train_epoch(self):
         """Test single training epoch."""
-        config = MNGSConfig(max_k=64, k_init=16, latent_dim=32)
-        model = build_mngs(784, 10, config)
+        config = NGSConfig(max_k=64, k_init=16, latent_dim=32)
+        model = build_ngs(784, 10, config)
 
-        trainer_config = TrainConfig(
+        trainer_config = TrainerConfig(
             lr=1e-3,
             epochs=1,
             batch_size=32,
@@ -54,13 +54,13 @@ class TestTrainer:
 
     def test_trainer_with_replay_buffer(self):
         """Test trainer with replay buffer."""
-        config = MNGSConfig(max_k=64, k_init=16, latent_dim=32)
-        model = build_mngs(784, 10, config)
+        config = NGSConfig(max_k=64, k_init=16, latent_dim=32)
+        model = build_ngs(784, 10, config)
 
         from experiments.datasets import ReplayBuffer
         replay_buffer = ReplayBuffer(max_size=1000)
 
-        trainer_config = TrainConfig(
+        trainer_config = TrainerConfig(
             lr=1e-3,
             epochs=1,
             batch_size=32,
@@ -80,10 +80,10 @@ class TestTrainer:
 
     def test_trainer_with_old_model_kd(self):
         """Test trainer with knowledge distillation."""
-        config = MNGSConfig(max_k=64, k_init=16, latent_dim=32)
-        model = build_mngs(784, 10, config)
+        config = NGSConfig(max_k=64, k_init=16, latent_dim=32)
+        model = build_ngs(784, 10, config)
 
-        trainer_config = TrainConfig(
+        trainer_config = TrainerConfig(
             lr=1e-3,
             epochs=1,
             batch_size=32,
@@ -110,10 +110,10 @@ class TestTrainer:
 
     def test_trainer_learning_rate_scheduler(self):
         """Test LR scheduler integration."""
-        config = MNGSConfig(max_k=64, k_init=16, latent_dim=32)
-        model = build_mngs(784, 10, config)
+        config = NGSConfig(max_k=64, k_init=16, latent_dim=32)
+        model = build_ngs(784, 10, config)
 
-        trainer_config = TrainConfig(
+        trainer_config = TrainerConfig(
             lr=1e-3,
             epochs=3,
             batch_size=32,
@@ -142,10 +142,10 @@ class TestTrainer:
 
     def test_trainer_gradient_clipping(self):
         """Test gradient clipping."""
-        config = MNGSConfig(max_k=64, k_init=16, latent_dim=32)
-        model = build_mngs(784, 10, config)
+        config = NGSConfig(max_k=64, k_init=16, latent_dim=32)
+        model = build_ngs(784, 10, config)
 
-        trainer_config = TrainConfig(
+        trainer_config = TrainerConfig(
             lr=1.0,  # High LR to trigger clipping
             epochs=1,
             batch_size=32,

@@ -123,7 +123,9 @@ def evaluate_model_on_task(model, test_loader, device) -> float:
         for x, y in test_loader:
             x = x.view(x.size(0), -1).to(device)
             y = y.to(device)
-            pred = model(x).argmax(dim=1)
+            out = model(x)
+            logits = out.logits if hasattr(out, 'logits') else out
+            pred = logits.argmax(dim=1)
             correct += (pred == y).sum().item()
             total += y.size(0)
     return correct / total

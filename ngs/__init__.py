@@ -57,6 +57,17 @@ from ngs.visualization.visualize import (
     plot_riemannian_geodesics,
     interactive_dashboard,
 )
+from ngs.modules.advanced import (
+    SymbolicExtractor,
+    CrossModalFusion,
+    MetaMetaLearner,
+    MahalanobisKernel,
+    LoRAKernel,
+    TritonKernelConfig,
+    build_symbolic_extractor,
+    build_cross_modal_fusion,
+    build_meta_meta_learner,
+)
 
 __all__ = [
     "NGSConfig",
@@ -103,6 +114,15 @@ __all__ = [
     "plot_hypernetwork_codes",
     "plot_riemannian_geodesics",
     "interactive_dashboard",
+    "SymbolicExtractor",
+    "CrossModalFusion",
+    "MetaMetaLearner",
+    "MahalanobisKernel",
+    "LoRAKernel",
+    "TritonKernelConfig",
+    "build_symbolic_extractor",
+    "build_cross_modal_fusion",
+    "build_meta_meta_learner",
 ]
 
 # Version
