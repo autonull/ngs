@@ -42,12 +42,12 @@ NGS decouples adaptive neural computation into four independent dimensions:
 
 | Strategy | Options | Default | Design Principle |
 |----------|---------|---------|------------------|
-| **Routing** | Monolithic / **Factorized** / Hierarchical / Gaussian Attention / LSH | **Factorized** | Project to subspaces, route independently → sub-linear cost, better coverage |
+| **Routing** | Monolithic / **Factorized** / Hierarchical / Gaussian Attention / LSH / Uncertainty-Aware | **Factorized** | Project to subspaces, route independently → sub-linear cost, better coverage |
 | **Parameter Storage** | Direct Adapters / **Hypernetwork** / LoRA | **Hypernetwork** | Generate adapters from compact codes → parameter efficiency |
 | **Topology Control** | Heuristic / **Continuous Density** / Merge-Aware / Meta-Learned | **Continuous Density** | Learnable split gates → differentiable, gradient-based growth |
 | **Memory Management** | Pre-allocated / Dynamic / Strict Capacity | Pre-allocated | Masked activation → no reallocation overhead |
 
-**3 × 3 × 3 × 3 = 81 configurations** — all swappable via config, no code changes.
+**6 × 3 × 4 × 3 = 216 configurations** — all swappable via config, no code changes.
 
 ---
 
@@ -124,7 +124,7 @@ python examples/train_cl.py --experiment split_mnist --seeds 42
 python examples/train_rl.py --env CartPole-v1 --domain-shift gravity
 
 # Ablation framework
-python -m ngs.benchmarks.ablation --task split_mnist --quick
+python experiments/ablation.py --experiment split_mnist --output-dir ./ablation_results
 
 # Run tests
 pytest tests/ -v
