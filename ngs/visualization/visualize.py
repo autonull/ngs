@@ -679,112 +679,232 @@ def plot_riemannian_geodesics(model, z_start: Any, z_end: Any, save_path: Option
 
 def interactive_dashboard(model):
     """
-    Launch a simple Plotly-based dashboard showing topology, routing, and uncertainty.
+    Launch an interactive Dash-based dashboard for NGS model inspection.
 
-    Requires ``plotly`` to be installed. The dashboard is composed of subplots:
-    - **Topology**: Bar chart of active units per subspace / level.
-    - **Routing**: Heatmap of the most recent routing weights.
-    - **Uncertainty**: Histogram of uncertainty values (if available).
+    Features:
+    - Topology bar chart (active vs inactive units)
+    - Routing weights heatmap
+    - Uncertainty distribution histogram
+    - Task selector dropdown
+    - Split/prune threshold sliders (topology controls)
+    - Top-K slider
+    - Export current view as PNG/SVG
+
+    Requires ``plotly`` and optional ``dash`` for the full interactive server.
+    If ``dash`` is not installed, falls back to a static Plotly figure.
 
     Parameters
     ----------
     model : NGSModel
-        An instantiated and (ideally) evaluated NGS model.
+        An instantiated NGS model with routing state.
 
     Returns
     -------
-    plotly.graph_objs._figure.Figure
-        The Plotly figure object (use ``.show()``Embedding spawns the interactive viewer).
+    plotly.graph_objs._figure.Figure or dash.Dash
     """
     go, plotly_make_subplots = _require_plotly()
     np = _require_numpy()
 
-    # Determine number of active units
-    router = model.router
-    if hasattr(router, "active_mask"):
-        active_mask = router.active_mask
-        if _TORCH_AVAILABLE and isinstance(active_mask, torch.Tensor):
-            active_mask = active_mask.detach().cpu().numpy()
-        active_count = int(active_mask.sum())
-    elif hasattr(router, "K"):
-        active_count = router.K
-    else:
-        active_count = 0
+    # Utility: extract model state
+    def get_active_count():
+        router = model.router
+        if hasattr(router, "active_mask"):
+            mask = router.active_mask
+            if _TORCH_AVAILABLE and isinstance(mask, torch.Tensor):
+                mask = mask.detach().cpu().numpy()
+            return int(mask.sum())
+        return getattr(router, "K", 0)
 
-    max_k = getattr(router, "max_k", active_count)
+    def get_routing_weights():
+        if hasattr(model, "_last_routing_weights") and model._last_routing_weights is not None:
+            rw = model._last_routing_weights
+            if _TORCH_AVAILABLE and isinstance(rw, torch.Tensor):
+                rw = rw.detach().cpu().numpy()
+            if rw is not None and rw.ndim == 2:
+                return np.asarray(rw)
+        return np.array([[0.0]])
 
-    # Topology subplot
-    topology_trace = go.Bar(
-        x=["Active", "Inactive"],
-        y=[active_count, max_k - active_count],
-        marker_color=["#2E86AB", "#A8DADC"],
-        name="Topology",
+    def get_uncertainty():
+        if hasattr(model, "_last_routing_output") and model._last_routing_output is not None:
+            ro = model._last_routing_output
+            if hasattr(ro, "uncertainty") and ro.uncertainty is not None:
+                unc = ro.uncertainty
+                if _TORCH_AVAILABLE and isinstance(unc, torch.Tensor):
+                    unc = unc.detach().cpu().numpy()
+                return np.asarray(unc).flatten()
+        return np.array([0.5])
+
+    max_k = getattr(model.router, "max_k", 512)
+    active_count = get_active_count()
+    routing_weights = get_routing_weights()
+    uncertainty = get_uncertainty()
+
+    # Try to import Dash; fall back to static Plotly figure
+    try:
+        import dash
+        from dash import dcc, html, Input, Output, State
+        import base64
+        import io as _io
+        _DASH_AVAILABLE = True
+    except Exception:
+        _DASH_AVAILABLE = False
+
+    if not _DASH_AVAILABLE:
+        # Static Plotly fallback
+        fig = plotly_make_subplots(
+            rows=2, cols=2,
+            specs=[[{"colspan": 2}, None], [{}, {}]],
+            subplot_titles=("Topology Overview", "Routing Weights", "Uncertainty Distribution"),
+            vertical_spacing=0.15, horizontal_spacing=0.1,
+        )
+        fig.add_trace(go.Bar(
+            x=["Active", "Inactive"],
+            y=[active_count, max_k - active_count],
+            marker_color=["#2E86AB", "#A8DADC"],
+        ), row=1, col=1)
+        fig.add_trace(go.Heatmap(z=routing_weights, colorscale="Hot", showscale=True), row=2, col=1)
+        fig.add_trace(go.Histogram(x=uncertainty, nbinsx=20, marker_color="#6C4AB6"), row=2, col=2)
+        fig.update_layout(
+            title_text="NGS Interactive Dashboard",
+            title_font_size=18, height=700, showlegend=False,
+        )
+        fig.update_xaxes(title_text="Status", row=1, col=1)
+        fig.update_yaxes(title_text="Count", row=1, col=1)
+        fig.update_xaxes(title_text="Top-K Index", row=2, col=1)
+        fig.update_yaxes(title_text="Sample Index", row=2, col=1)
+        fig.update_xaxes(title_text="Uncertainty", row=2, col=2)
+        fig.update_yaxes(title_text="Frequency", row=2, col=2)
+        return fig
+
+    # --- Full Dash dashboard ---
+    app = dash.Dash(__name__)
+
+    app.layout = html.Div([
+        html.H1("NGS Interactive Dashboard", style={"textAlign": "center", "fontSize": 24}),
+
+        # Controls row
+        html.Div([
+            # Task selector
+            html.Div([
+                html.Label("Task Selector"),
+                dcc.Dropdown(
+                    id="task-selector",
+                    options=[{"label": f"Task {i}", "value": i} for i in range(10)],
+                    value=0, clearable=False,
+                ),
+            ], style={"display": "inline-block", "width": "20%", "padding": "10px"}),
+
+            # Top-K slider
+            html.Div([
+                html.Label("Top-K"),
+                dcc.Slider(id="topk-slider", min=1, max=64, value=8, marks={1: "1", 16: "16", 32: "32", 64: "64"}),
+            ], style={"display": "inline-block", "width": "20%", "padding": "10px"}),
+
+            # Split threshold slider
+            html.Div([
+                html.Label("Split Threshold"),
+                dcc.Slider(id="split-thresh-slider", min=0.0, max=0.2, step=0.005, value=0.05,
+                           marks={0: "0", 0.05: "0.05", 0.1: "0.1", 0.15: "0.15", 0.2: "0.2"}),
+            ], style={"display": "inline-block", "width": "20%", "padding": "10px"}),
+
+            # Prune threshold slider
+            html.Div([
+                html.Label("Prune Threshold"),
+                dcc.Slider(id="prune-thresh-slider", min=0.0, max=0.1, step=0.005, value=0.01,
+                           marks={0: "0", 0.025: "0.025", 0.05: "0.05", 0.075: "0.075", 0.1: "0.1"}),
+            ], style={"display": "inline-block", "width": "20%", "padding": "10px"}),
+
+            # Export buttons
+            html.Div([
+                html.Button("Export PNG", id="btn-export-png", n_clicks=0),
+                html.Button("Export SVG", id="btn-export-svg", n_clicks=0,
+                            style={"marginLeft": "10px"}),
+                dcc.Download(id="download-plot"),
+            ], style={"display": "inline-block", "width": "15%", "padding": "10px", "vertical-align": "top"}),
+        ], style={"display": "flex", "flex-wrap": "wrap"}),
+
+        # Graphs
+        dcc.Graph(id="topology-graph"),
+        html.Div([
+            dcc.Graph(id="routing-graph", style={"display": "inline-block", "width": "50%"}),
+            dcc.Graph(id="uncertainty-graph", style={"display": "inline-block", "width": "50%"}),
+        ]),
+
+        # Store for export
+        html.Div(id="plot-store", style={"display": "none"}),
+    ])
+
+    @app.callback(
+        [Output("topology-graph", "figure"),
+         Output("routing-graph", "figure"),
+         Output("uncertainty-graph", "figure")],
+        [Input("task-selector", "value"),
+         Input("topk-slider", "value"),
+         Input("split-thresh-slider", "value"),
+         Input("prune-thresh-slider", "value")],
     )
+    def update_graphs(task_id, topk, split_thresh, prune_thresh):
+        active_count_ = get_active_count()
 
-    # Routing subplot (use cached routing if available)
-    routing_heatmap = go.Heatmap(
-        z=[[0.0]],
-        colorscale="Hot",
-        name="Routing",
-        showscale=True,
+        # Topology figure
+        topo_fig = go.Figure()
+        topo_fig.add_trace(go.Bar(
+            x=["Active", "Inactive"],
+            y=[active_count_, max_k - active_count_],
+            marker_color=["#2E86AB", "#A8DADC"],
+        ))
+        topo_fig.update_layout(
+            title=f"Topology Overview (Task {task_id})<br><sup>Split: {split_thresh:.3f}, Prune: {prune_thresh:.3f}</sup>",
+            yaxis_title="Count", height=350, showlegend=False,
+        )
+
+        # Routing figure
+        rw = get_routing_weights()
+        if rw.shape[1] > topk:
+            rw = rw[:, :topk]
+        route_fig = go.Figure()
+        route_fig.add_trace(go.Heatmap(z=rw, colorscale="Hot", showscale=True))
+        route_fig.update_layout(
+            title=f"Routing Weights (Top-{topk})",
+            xaxis_title="Top-K Index", yaxis_title="Sample Index",
+            height=350,
+        )
+
+        # Uncertainty figure
+        unc = get_uncertainty()
+        unc_fig = go.Figure()
+        unc_fig.add_trace(go.Histogram(x=unc, nbinsx=20, marker_color="#6C4AB6"))
+        unc_fig.update_layout(
+            title="Uncertainty Distribution",
+            xaxis_title="Uncertainty", yaxis_title="Frequency",
+            height=350,
+        )
+
+        return topo_fig, route_fig, unc_fig
+
+    @app.callback(
+        Output("download-plot", "data"),
+        [Input("btn-export-png", "n_clicks"),
+         Input("btn-export-svg", "n_clicks")],
+        [State("topology-graph", "figure")],
+        prevent_initial_call=True,
     )
-    # Try to get actual routing weights
-    if hasattr(model, "_last_routing_weights") and model._last_routing_weights is not None:
-        rw = model._last_routing_weights
-        if _TORCH_AVAILABLE and isinstance(rw, torch.Tensor):
-            rw = rw.detach().cpu().numpy()
-        if rw is not None and rw.ndim == 2:
-            routing_heatmap = go.Heatmap(
-                z=np.asarray(rw),
-                colorscale="Hot",
-                name="Routing",
-                showscale=True,
-            )
+    def export_plot(png_clicks, svg_clicks, fig_data):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return dash.no_update
 
-    # Uncertainty subplot
-    uncertainty_hist = go.Histogram(
-        x=[0.5],
-        nbinsx=20,
-        marker_color="#6C4AB6",
-        name="Uncertainty",
-    )
-    if hasattr(model, "_last_routing_output") and model._last_routing_output is not None:
-        ro = model._last_routing_output
-        if hasattr(ro, "uncertainty") and ro.uncertainty is not None:
-            unc = ro.uncertainty
-            if _TORCH_AVAILABLE and isinstance(unc, torch.Tensor):
-                unc = unc.detach().cpu().numpy()
-            uncertainty_hist = go.Histogram(
-                x=np.asarray(unc).flatten(),
-                nbinsx=20,
-                marker_color="#6C4AB6",
-                name="Uncertainty",
-            )
+        button_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        fmt = "png" if button_id == "btn-export-png" else "svg"
 
-    fig = plotly_make_subplots(
-        rows=2,
-        cols=2,
-        specs=[[{"colspan": 2}, None], [{}, {}]],
-        subplot_titles=("Topology Overview", "Routing Weights", "Uncertainty Distribution"),
-        vertical_spacing=0.15,
-        horizontal_spacing=0.1,
-    )
+        buf = _io.BytesIO()
+        import plotly.io as pio
+        pio.write_image(go.Figure(fig_data), buf, format=fmt, width=800, height=400)
+        buf.seek(0)
+        encoded = base64.b64encode(buf.read()).decode()
+        return dcc.send_bytes(
+            base64.b64decode(encoded),
+            filename=f"ngs_dashboard.{fmt}"
+        )
 
-    fig.add_trace(topology_trace, row=1, col=1)
-    fig.add_trace(routing_heatmap, row=2, col=1)
-    fig.add_trace(uncertainty_hist, row=2, col=2)
-
-    fig.update_layout(
-        title_text="NGS Interactive Dashboard",
-        title_font_size=18,
-        height=700,
-        showlegend=False,
-    )
-    fig.update_xaxes(title_text="Status", row=1, col=1)
-    fig.update_yaxes(title_text="Count", row=1, col=1)
-    fig.update_xaxes(title_text="Top-K Index", row=2, col=1)
-    fig.update_yaxes(title_text="Sample Index", row=2, col=1)
-    fig.update_xaxes(title_text="Uncertainty", row=2, col=2)
-    fig.update_yaxes(title_text="Frequency", row=2, col=2)
-
-    return fig
+    return app
