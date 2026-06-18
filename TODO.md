@@ -120,6 +120,15 @@ All implemented in `ngs/visualization/visualize.py` and `experiments/plotting.py
   - Config sidebar + Live monitor + Experiment history cards (replaces tabs)
   - Auto-loads existing results from `./results/`
   - One-page focus: configure → launch → watch progress → see results
+- [x] **Component Demos Dashboard** (`ngs/dashboard/demos_app.py`): ✅ Interactive 3D visualizations for recruitment (REDESIGNED v2)
+  - Clean single-page layout: Model selector + Visualization picker + Collapsible params + Main 3D view
+  - 7 visualizations: Gaussian Means 3D, Routing Explorer 3D, Hypernetwork Codes 3D, Subspace Alignment, Uncertainty Calibration, Riemannian Geodesics, Topology State
+  - 5 routing strategies: Factorized, Monolithic, LSH, Hierarchical, Gaussian Attention
+  - Real-time sliders for latent_dim, max_k, top_k, subspaces, code_dim, hidden_dim
+  - "Regenerate" and "Random Params" quick actions
+  - Proper data extraction handling FactorizedRouter's (S, K, D) mu shape
+  - Auto-refresh interval, loading spinners, info panels
+  - Launch via `./dashboard.sh --demos` (port 8052)
 - [x] **Background worker system** (no Redis): ✅ Python threading with in-memory store
 - [x] **Cleared all existing results** for fresh start
 
@@ -243,6 +252,21 @@ All implemented in `ngs/visualization/visualize.py` and `experiments/plotting.py
 
 ---
 
+### Session 2026-06-18 (continued): Component Demos Dashboard Redesign
+
+**Completed:**
+- Complete redesign of `ngs/dashboard/demos_app.py` - from tab-based to intuitive single-page layout
+- Fixed data extraction for FactorizedRouter (handles 3D mu shape: subspaces × units × dims)
+- 5 routing strategies selectable: Factorized, Monolithic, LSH, Hierarchical, Gaussian Attention
+- 7 interactive 3D visualizations with real-time parameter controls
+- Collapsible parameter panel with sliders for all key hyperparameters
+- Quick actions: Regenerate model, Randomize params
+- Auto-refresh interval, loading states, info panels
+- Verified working: model creation, data extraction, all 7 visualizations render
+- Launch via `./dashboard.sh --demos` (port 8052) or `python -m ngs.dashboard.demos_app`
+
+---
+
 ## Execution Order & Dependencies
 
 ```
@@ -265,8 +289,8 @@ Phase 0 (docs) → Phase 1 (infra) → Phase 2 (matrix) → Phase 3 (viz) → Ph
 4. [x] Create `configs/` directory with 5 canonical YAML configs
 5. [ ] Eliminate all `mngs`/`lean_ngs` references from the codebase (files, results, docs)
 6. [ ] Run the full validation matrix (`bash validate.sh param_matched`)
-7. [x] Create `dashboard.sh` turnkey launch script — auto-installs deps, handles CLI args, supports `--simple` flag
-8. [x] Add `ngs/dashboard/` package with full Dash app (5 tabs) + simple app (1-page)
+7. [x] Create `dashboard.sh` turnkey launch script — auto-installs deps, handles CLI args, supports `--simple` and `--demos` flags
+8. [x] Add `ngs/dashboard/` package with full Dash app (5 tabs) + simple app (1-page) + demos app (7 3D tabs)
 9. [x] Shared components in `ngs/dashboard/components.py` for reuse
 10. [ ] Migrate `results/` JSON: `mngs_*` → `ngs_*`
 11. [ ] Migrate `plots/` filenames: `mngs_*` → `ngs_*`

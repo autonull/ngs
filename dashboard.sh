@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# NGS Experiment Dashboard Launch Script
-# Usage: ./dashboard.sh [--simple] [--host 127.0.0.1] [--port 8050] [--debug]
+# NGS Dashboard Launch Script
+# Usage: ./dashboard.sh [--simple|--demos] [--host 127.0.0.1] [--port 8050] [--debug]
 #
-# This script starts the NGS experiment dashboard server.
-# Default: Full dashboard on port 8050
-# With --simple: Streamlined dashboard on port 8051
+# Dashboards:
+#   (default)    Full Experiment Dashboard on port 8050
+#   --simple     Streamlined dashboard on port 8051
+#   --demos      Component Demos (3D visualizations) on port 8052
 #
 # Features:
 # - Auto-opens browser (if available)
@@ -17,16 +18,21 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FULL_APP="${SCRIPT_DIR}/ngs/dashboard/app.py"
 SIMPLE_APP="${SCRIPT_DIR}/ngs/dashboard/simple_app.py"
-HOST="127.0.0.1"
+DEMOS_APP="${SCRIPT_DIR}/ngs/dashboard/demos_app.py"
+HOST="0.0.0.0"
 PORT="8050"
 DEBUG=""
-SIMPLE=false
+MODE="full"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --simple)
-            SIMPLE=true
+            MODE="simple"
+            shift
+            ;;
+        --demos)
+            MODE="demos"
             shift
             ;;
         --host)
@@ -42,12 +48,16 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "Usage: $0 [--simple] [--host <host>] [--port <port>] [--debug]"
+            echo "Usage: $0 [--simple|--demos] [--host <host>] [--port <port>] [--debug]"
+            echo ""
+            echo "Modes:"
+            echo "  (default)    Full Experiment Dashboard (port 8050)"
+            echo "  --simple     Streamlined Experiment Dashboard (port 8051)"
+            echo "  --demos      Component Demos - 3D Visualizations (port 8052)"
             echo ""
             echo "Options:"
-            echo "  --simple        Launch simple dashboard (default: full dashboard)"
             echo "  --host <host>   Host to bind to (default: 127.0.0.1)"
-            echo "  --port <port>   Port to bind to (default: 8050 for full, 8051 for simple)"
+            echo "  --port <port>   Port to bind to (default varies by mode)"
             echo "  --debug         Enable Dash debug mode"
             echo "  -h, --help      Show this help message"
             exit 0
@@ -61,14 +71,25 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Set defaults based on mode
-if [[ "$SIMPLE" == true ]]; then
-    APP_PATH="${SIMPLE_APP}"
-    [[ "$PORT" == "8050" ]] && PORT="8051"
-    DASHBOARD_NAME="Simple Experiment Dashboard"
-else
-    APP_PATH="${FULL_APP}"
-    DASHBOARD_NAME="Full Experiment Dashboard"
-fi
+case "$MODE" in
+    simple)
+        APP_PATH="${SIMPLE_APP}"
+        [[ "$PORT" == "8050" ]] && PORT="8051"
+        DASHBOARD_NAME="Simple Experiment Dashboard"
+        MODULE="ngs.dashboard.simple_app"
+        ;;
+    demos)
+        APP_PATH="${DEMOS_APP}"
+        [[ "$PORT" == "8050" ]] && PORT="8052"
+        DASHBOARD_NAME="Component Demos Dashboard"
+        MODULE="ngs.dashboard.demos_app"
+        ;;
+    *)
+        APP_PATH="${FULL_APP}"
+        DASHBOARD_NAME="Full Experiment Dashboard"
+        MODULE="ngs.dashboard.app"
+        ;;
+esac
 
 echo "======================================"
 echo "  NGS ${DASHBOARD_NAME}"
@@ -100,6 +121,14 @@ if [[ ${#MISSING_DEPS[@]} -gt 0 ]]; then
     pip install "${MISSING_DEPS[@]}"
 fi
 
+# For demos, also need scikit-learn
+if [[ "$MODE" == "demos" ]]; then
+    if ! ${PYTHON} -c "import sklearn" 2>/dev/null; then
+        echo "Installing scikit-learn for demos..."
+        pip install scikit-learn
+    fi
+fi
+
 # Verify app.py exists
 if [[ ! -f "${APP_PATH}" ]]; then
     echo "Error: Could not find dashboard app at ${APP_PATH}"
@@ -121,8 +150,4 @@ elif command -v xdg-open &> /dev/null; then
 fi
 
 # Start the Dash server using module execution for proper imports
-if [[ "$SIMPLE" == true ]]; then
-    exec ${PYTHON} -m ngs.dashboard.simple_app --host="${HOST}" --port="${PORT}" ${DEBUG}
-else
-    exec ${PYTHON} -m ngs.dashboard.app --host="${HOST}" --port="${PORT}" ${DEBUG}
-fi
+exec ${PYTHON} -m ${MODULE} --host="${HOST}" --port="${PORT}" ${DEBUG}
