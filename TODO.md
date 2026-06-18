@@ -92,7 +92,7 @@ All implemented in `ngs/visualization/visualize.py` and `experiments/plotting.py
 ### 3.3 Interactive Dashboard (Comprehensive Server)
 - [x] Basic `interactive_dashboard()` in `ngs/visualization/visualize.py` (static Plotly fallback)
 - [x] Enhanced Dash-based version with config controls and export
-- [x] **`dashboard.sh` turnkey launch script** — `./dashboard.sh` starts server on localhost:8050 (no auto-browser yet)
+- [x] **`dashboard.sh` turnkey launch script** — `./dashboard.sh` starts server on localhost:8050 (full) or 8051 (simple)
 - [x] **Full Dash dashboard application** (`ngs/dashboard/app.py`): ✅ Implemented with core features
   - **Experiment Config Panel (Sidebar):** ✅
     - Model profile selector (Baseline, CFG-Net, Abl-Hyper, Ultra-Edge, w/ LoRA variants)
@@ -115,9 +115,13 @@ All implemented in `ngs/visualization/visualize.py` and `experiments/plotting.py
     - Device selector (CPU/GPU)
     - Configurable results directory
     - Server info display (platform, python version, job count)
-- [ ] **Background worker system** (no Redis):
-  - Queue training jobs using Python threading
-  - Basic progress tracking in-memory
+- [x] **Simple Dash dashboard** (`ngs/dashboard/simple_app.py`): ✅ Streamlined for rapid experimentation
+  - Shared components in `ngs/dashboard/components.py`
+  - Config sidebar + Live monitor + Experiment history cards (replaces tabs)
+  - Auto-loads existing results from `./results/`
+  - One-page focus: configure → launch → watch progress → see results
+- [x] **Background worker system** (no Redis): ✅ Python threading with in-memory store
+- [x] **Cleared all existing results** for fresh start
 
 ---
 
@@ -220,6 +224,25 @@ All implemented in `ngs/visualization/visualize.py` and `experiments/plotting.py
 
 ---
 
+### Session 2026-06-18 (continued): Interactive Dashboard Implementation
+
+**Completed:**
+- Created `dashboard.sh` turnkey launch script with `--simple` flag, auto-dep install, browser open
+- Built full dashboard (`ngs/dashboard/app.py`) with 5 tabs: Task Launcher, Live Monitor, Visualizations, Result Explorer, Server
+- Built simple dashboard (`ngs/dashboard/simple_app.py`) — streamlined 1-page: config sidebar + live graphs + experiment history cards
+- Created shared components (`ngs/dashboard/components.py`) for reuse across both dashboards
+- Implemented background worker using Python threading (no Redis/Celery)
+- Cleared all existing results in `./results/` and `./plots/` for fresh start
+- Both dashboards auto-load completed experiments from results directory
+
+**Verified:**
+- `./dashboard.sh --simple` launches simple dashboard on port 8051
+- `./dashboard.sh` launches full dashboard on port 8050
+- Both serve HTML correctly and callbacks work
+- Experiment launch → background thread → live progress → results display
+
+---
+
 ## Execution Order & Dependencies
 
 ```
@@ -242,7 +265,8 @@ Phase 0 (docs) → Phase 1 (infra) → Phase 2 (matrix) → Phase 3 (viz) → Ph
 4. [x] Create `configs/` directory with 5 canonical YAML configs
 5. [ ] Eliminate all `mngs`/`lean_ngs` references from the codebase (files, results, docs)
 6. [ ] Run the full validation matrix (`bash validate.sh param_matched`)
-7. [x] Create `dashboard.sh` turnkey launch script — auto-installs deps, handles CLI args
-8. [x] Add `ngs/dashboard/` package with full Dash app — 5 tabs: Task Launcher, Live Monitor, Visualizations, Result Explorer, Server
-9. [ ] Migrate `results/` JSON: `mngs_*` → `ngs_*`
-10. [ ] Migrate `plots/` filenames: `mngs_*` → `ngs_*`
+7. [x] Create `dashboard.sh` turnkey launch script — auto-installs deps, handles CLI args, supports `--simple` flag
+8. [x] Add `ngs/dashboard/` package with full Dash app (5 tabs) + simple app (1-page)
+9. [x] Shared components in `ngs/dashboard/components.py` for reuse
+10. [ ] Migrate `results/` JSON: `mngs_*` → `ngs_*`
+11. [ ] Migrate `plots/` filenames: `mngs_*` → `ngs_*`

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # NGS Experiment Dashboard Launch Script
-# Usage: ./dashboard.sh [--host 127.0.0.1] [--port 8050] [--debug]
+# Usage: ./dashboard.sh [--simple] [--host 127.0.0.1] [--port 8050] [--debug]
 #
-# This script starts the NGS interactive experiment dashboard server
-# at http://localhost:8050 (by default).
+# This script starts the NGS experiment dashboard server.
+# Default: Full dashboard on port 8050
+# With --simple: Streamlined dashboard on port 8051
 #
 # Features:
 # - Auto-opens browser (if available)
@@ -14,14 +15,20 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_PATH="${SCRIPT_DIR}/ngs/dashboard/app.py"
-HOST="0.0.0.0"
+FULL_APP="${SCRIPT_DIR}/ngs/dashboard/app.py"
+SIMPLE_APP="${SCRIPT_DIR}/ngs/dashboard/simple_app.py"
+HOST="127.0.0.1"
 PORT="8050"
 DEBUG=""
+SIMPLE=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --simple)
+            SIMPLE=true
+            shift
+            ;;
         --host)
             HOST="$2"
             shift 2
@@ -35,11 +42,12 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "Usage: $0 [--host <host>] [--port <port>] [--debug]"
+            echo "Usage: $0 [--simple] [--host <host>] [--port <port>] [--debug]"
             echo ""
             echo "Options:"
+            echo "  --simple        Launch simple dashboard (default: full dashboard)"
             echo "  --host <host>   Host to bind to (default: 127.0.0.1)"
-            echo "  --port <port>   Port to bind to (default: 8050)"
+            echo "  --port <port>   Port to bind to (default: 8050 for full, 8051 for simple)"
             echo "  --debug         Enable Dash debug mode"
             echo "  -h, --help      Show this help message"
             exit 0
@@ -50,11 +58,20 @@ while [[ $# -gt 0 ]]; do
             exit 1
             ;;
     esac
-    shift
 done
 
+# Set defaults based on mode
+if [[ "$SIMPLE" == true ]]; then
+    APP_PATH="${SIMPLE_APP}"
+    [[ "$PORT" == "8050" ]] && PORT="8051"
+    DASHBOARD_NAME="Simple Experiment Dashboard"
+else
+    APP_PATH="${FULL_APP}"
+    DASHBOARD_NAME="Full Experiment Dashboard"
+fi
+
 echo "======================================"
-echo "  NGS Experiment Dashboard"
+echo "  NGS ${DASHBOARD_NAME}"
 echo "======================================"
 echo ""
 
@@ -90,7 +107,7 @@ if [[ ! -f "${APP_PATH}" ]]; then
 fi
 
 echo ""
-echo "Starting dashboard..."
+echo "Starting ${DASHBOARD_NAME}..."
 echo "  URL:    http://${HOST}:${PORT}"
 echo "  Debug:  ${DEBUG:-no}"
 echo "  App:    ${APP_PATH}"
@@ -103,5 +120,9 @@ elif command -v xdg-open &> /dev/null; then
     (sleep 2 && xdg-open "http://${HOST}:${PORT}") &
 fi
 
-# Start the Dash server
-exec ${PYTHON} "${APP_PATH}" --host="${HOST}" --port="${PORT}" ${DEBUG}
+# Start the Dash server using module execution for proper imports
+if [[ "$SIMPLE" == true ]]; then
+    exec ${PYTHON} -m ngs.dashboard.simple_app --host="${HOST}" --port="${PORT}" ${DEBUG}
+else
+    exec ${PYTHON} -m ngs.dashboard.app --host="${HOST}" --port="${PORT}" ${DEBUG}
+fi
