@@ -1,5 +1,6 @@
 # NGS-Attention: GaussianAttention routing, DirectAdapter, ContinuousDensity topology, PreAlloc memory
 # Uncertainty-aware routing with Gaussian attention mechanism
+dataset: split_mnist
 experiment: split_mnist
 scenario: class_incremental
 n_tasks: 5

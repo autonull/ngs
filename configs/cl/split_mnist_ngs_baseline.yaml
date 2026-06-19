@@ -1,5 +1,6 @@
 # NGS-Baseline: Monolithic routing, DirectAdapter, Heuristic topology, PreAlloc memory
 experiment: split_mnist
+dataset: split_mnist
 scenario: class_incremental
 n_tasks: 5
 classes_per_task: 2

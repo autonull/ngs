@@ -1,5 +1,6 @@
 # NGS-Ultra: LSH routing, LoRA parameter storage, Heuristic topology, StrictCapacity memory
 # Extreme scale configuration for very large models
+dataset: split_mnist
 experiment: split_mnist
 scenario: class_incremental
 n_tasks: 5

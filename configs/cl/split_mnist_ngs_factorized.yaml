@@ -1,5 +1,6 @@
 # NGS-Factorized: Factorized routing, DirectAdapter, Heuristic topology, PreAlloc memory
 # Ablation study: comparing routing strategies (Factorized vs Monolithic)
+dataset: split_mnist
 experiment: split_mnist
 scenario: class_incremental
 n_tasks: 5

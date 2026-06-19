@@ -1,5 +1,6 @@
 # NGS-Hyper: Factorized routing, Hypernetwork storage, ContinuousDensity topology, PreAlloc memory
 # Parameter efficiency sweet spot - generates adapters from compact codes
+dataset: split_mnist
 experiment: split_mnist
 scenario: class_incremental
 n_tasks: 5
