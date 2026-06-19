@@ -24,7 +24,8 @@ class NGSRLPolicy(nn.Module):
         self.value_head = nn.Linear(64, 1)
     
     def forward(self, obs: torch.Tensor):
-        features = self.ngs(obs)
+        output = self.ngs(obs)
+        features = output.logits if hasattr(output, 'logits') else output
         logits = self.action_head(features)
         value = self.value_head(features)
         return logits, value.squeeze(-1)
@@ -149,7 +150,7 @@ def run_rl_benchmark(
         routing=RoutingStrategy.MONOLITHIC_MAHALANOBIS,
         parameter_storage=ParameterStorage.DIRECT_ADAPTER,
         topology_control=TopologyControl.DISCRETE_HEURISTIC,
-        memory_management=MemoryManagement.PRE_ALLOCATED_MASKED,
+        memory_management=MemoryManagement.PRE_ALLOCATED,
     )
     
     policy = NGSRLPolicy(obs_dim, action_dim, config).to(device)

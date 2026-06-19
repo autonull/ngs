@@ -15,7 +15,6 @@ import json
 from experiments.config import ExperimentConfig, EXPERIMENTS, TrainConfig, ModelConfig, as_train_kwargs
 from experiments.datasets import get_task_loaders
 from experiments.metrics import compute_metrics, evaluate_model_on_task
-from experiments.lean_ngs_trainer import train_lean_ngs, create_lean_ngs
 from experiments.backbones import create_backbone_ngs, PretrainedBackbone
 
 
@@ -219,7 +218,7 @@ def run_quick_experiment(
         'accuracy_matrix': accuracy_matrix.tolist(),
         'active_units': active_units_list,
         'config': config.name,
-        'model': 'lean_ngs',
+        'model': 'ngs_backbone',
         'backbone': backbone_name,
         'head_params': head_params,
         'total_params': total_params,
@@ -230,7 +229,7 @@ def run_quick_experiment(
     
     if verbose:
         from experiments.metrics import print_results
-        print_results(metrics, f"{config.name} - LeanNGS ({backbone_name}) seed={seed}")
+        print_results(metrics, f"{config.name} - NGS ({backbone_name}) seed={seed}")
         print(f"  Head params: {head_params:,}, Total params: {total_params:,}")
     
     return full_result

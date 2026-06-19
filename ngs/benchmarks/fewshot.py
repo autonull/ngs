@@ -92,7 +92,7 @@ def run_fewshot_benchmark(
         routing=RoutingStrategy.FACTORIZED_SUBSPACE,
         parameter_storage=ParameterStorage.HYPERNETWORK_GENERATED,
         topology_control=TopologyControl.CONTINUOUS_DENSITY,
-        memory_management=MemoryManagement.PRE_ALLOCATED_MASKED,
+        memory_management=MemoryManagement.PRE_ALLOCATED,
         num_subspaces=4,
         hypernetwork_code_dim=8,
         hypernetwork_hidden_dim=32,
@@ -127,8 +127,10 @@ def run_fewshot_benchmark(
         query_y = y[n_support:n_support+n_query_total]
         
         # Forward pass
-        support_features = model(support_x)
-        query_features = model(query_x)
+        support_output = model(support_x)
+        query_output = model(query_x)
+        support_features = support_output.logits if hasattr(support_output, 'logits') else support_output
+        query_features = query_output.logits if hasattr(query_output, 'logits') else query_output
         
         # Compute prototypes
         prototypes = torch.zeros(n_way, latent_dim, device=device)
@@ -164,8 +166,10 @@ def run_fewshot_benchmark(
                     query_x = x_test[n_support:]
                     query_y = y_test[n_support:] % n_way
                     
-                    support_features = model(support_x)
-                    query_features = model(query_x)
+                    support_output = model(support_x)
+                    query_output = model(query_x)
+                    support_features = support_output.logits if hasattr(support_output, 'logits') else support_output
+                    query_features = query_output.logits if hasattr(query_output, 'logits') else query_output
                     
                     prototypes = torch.zeros(n_way, latent_dim, device=device)
                     for c in range(n_way):
@@ -197,8 +201,10 @@ def run_fewshot_benchmark(
             query_x = x_test[n_support:]
             query_y = y_test[n_support:] % n_way
             
-            support_features = model(support_x)
-            query_features = model(query_x)
+            support_output = model(support_x)
+            query_output = model(query_x)
+            support_features = support_output.logits if hasattr(support_output, 'logits') else support_output
+            query_features = query_output.logits if hasattr(query_output, 'logits') else query_output
             
             prototypes = torch.zeros(n_way, latent_dim, device=device)
             for c in range(n_way):

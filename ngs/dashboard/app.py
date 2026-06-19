@@ -37,13 +37,13 @@ from plotly.subplots import make_subplots
 try:
     from experiments.config import EXPERIMENTS, ModelConfig, TrainConfig
     from experiments.runner import run_experiment
-    from experiments.mngs_trainer import create_mngs_from_profile, PROFILE_TRAIN_CONFIGS
+    from experiments.ngs_trainer import create_ngs_from_profile, PROFILE_TRAIN_CONFIGS
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
     from experiments.config import EXPERIMENTS, ModelConfig, TrainConfig
     from experiments.runner import run_experiment
-    from experiments.mngs_trainer import create_mngs_from_profile, PROFILE_TRAIN_CONFIGS
+    from experiments.ngs_trainer import create_ngs_from_profile, PROFILE_TRAIN_CONFIGS
 
 
 # ------------------------------------------------------------------------------

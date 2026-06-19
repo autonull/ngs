@@ -48,7 +48,7 @@ def run_grid_sweep(
                 setattr(config, k, v)
 
         for seed in seeds:
-            result = run_experiment(config, "lean_ngs", seed=seed, output_dir=output_dir, verbose=False)
+            result = run_experiment(config, "ngs_baseline", seed=seed, output_dir=output_dir, verbose=False)
             result["params"] = params
             result["seed"] = seed
             all_results.append(result)

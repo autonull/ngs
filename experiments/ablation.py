@@ -19,7 +19,8 @@ from experiments.datasets import get_task_loaders, PermutedMNIST, ReplayBuffer
 from experiments.baselines import create_baseline
 from experiments.metrics import compute_metrics, evaluate_model_on_task
 from experiments.trainers import get_trainer
-from experiments.lean_ngs_trainer import train_lean_ngs, create_lean_ngs
+from ngs.models.ngs import build_ngs
+from ngs.core.interfaces import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
 
 
 def set_seed(seed: int):
@@ -48,10 +49,15 @@ def run_single_experiment(
     model_kwargs = model_kwargs or {}
     train_kwargs = train_kwargs or {}
     
-    if model_name == 'lean_ngs':
-        model = create_lean_ngs(config.input_dim, config.output_dim, **model_kwargs)
-        train_fn = train_lean_ngs
+    if model_name.startswith('ngs_'):
+        # Parse profile name (e.g., 'ngs_baseline')
+        profile = model_name[4:]
+        from experiments.ngs_trainer import create_ngs_from_profile, train_ngs, PROFILE_TRAIN_CONFIGS
+        model = create_ngs_from_profile(profile, config.input_dim, config.output_dim)
+        train_fn = train_ngs
         default_train_kwargs = as_train_kwargs(config.train)
+        if profile in PROFILE_TRAIN_CONFIGS:
+            default_train_kwargs.update(PROFILE_TRAIN_CONFIGS[profile])
     else:
         model = create_baseline(model_name, config.input_dim, config.output_dim, **model_kwargs)
         train_fn = get_trainer(model_name)
@@ -64,7 +70,7 @@ def run_single_experiment(
     
     # Setup replay buffer
     replay_buffer = None
-    if model_name in ['er', 'lean_ngs']:
+    if model_name == 'er' or model_name.startswith('ngs_'):
         replay_buffer = ReplayBuffer(max_size=config.train.replay_size)
     
     # Task loader function
@@ -89,9 +95,7 @@ def run_single_experiment(
         
         # Train
         train_kwargs['replay_buffer'] = replay_buffer
-        if model_name == 'lean_ngs':
-            train_kwargs['old_model'] = old_model
-        if model_name == 'lwf':
+        if model_name.startswith('ngs_') or model_name == 'lwf':
             train_kwargs['old_model'] = old_model
         train_fn(model, train_loader, task_id, device=device, **train_kwargs)
         
@@ -116,7 +120,7 @@ def run_single_experiment(
                 replay_buffer.add(x_flat, F.one_hot(y, num_classes=config.output_dim).float())
         
         # Save old model
-        if model_name in ['lean_ngs', 'lwf']:
+        if model_name.startswith('ngs_') or model_name == 'lwf':
             old_model = deepcopy(model)
             old_model.eval()
             for p in old_model.parameters():
@@ -133,7 +137,7 @@ def run_single_experiment(
     # Compute metrics
     metrics = compute_metrics(accuracy_matrix, random_baseline=1.0 / config.output_dim)
     metrics.active_units = active_units_list[-1] if active_units_list else 0
-    metrics.max_units = config.model.max_k if model_name == 'lean_ngs' else 0
+    metrics.max_units = config.model.max_k if model_name.startswith('ngs_') else 0
     
     return {
         'metrics': metrics.to_dict(),
@@ -292,7 +296,7 @@ def run_quick_ablation(experiment_name: str, output_dir: str = './ablation_resul
     config.train.epochs_per_task = 1  # Quick mode
     
     results = run_ablation(
-        experiment_name, 'lean_ngs', param_grid,
+        experiment_name, 'ngs_baseline', param_grid,
         base_train_kwargs={'epochs_per_task': 1},
         seed=42,
         output_dir=output_dir

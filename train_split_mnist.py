@@ -11,7 +11,8 @@ from torchvision import datasets, transforms
 import numpy as np
 import random
 
-from lean_ngs import LeanNGS
+from ngs.models.ngs import build_ngs
+from ngs.core.interfaces import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
 
 
 class ReplayBuffer:
@@ -117,7 +118,17 @@ def main():
     print(f"Device: {device}")
 
     d_in, d_out = 28 * 28, 2
-    model = LeanNGS(d_in, d_out, d_latent=32, k_init=128, max_k=1024, top_k=8).to(device)
+    cfg = NGSConfig(
+        latent_dim=32,
+        max_k=1024,
+        k_init=128,
+        top_k=8,
+        routing=RoutingStrategy.MONOLITHIC_MAHALANOBIS,
+        parameter_storage=ParameterStorage.DIRECT_ADAPTER,
+        topology_control=TopologyControl.DISCRETE_HEURISTIC,
+        memory_management=MemoryManagement.PRE_ALLOCATED,
+    )
+    model = build_ngs(d_in, d_out, cfg).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
 
     replay_buffer = ReplayBuffer(max_size=50000)
@@ -164,7 +175,7 @@ def main():
             results[eval_task].append(acc)
             print(f"  Task {eval_task} Acc: {acc:.4f}")
 
-        old_model = LeanNGS(d_in, d_out, d_latent=32, k_init=128, max_k=1024, top_k=8).to(device)
+        old_model = build_ngs(d_in, d_out, cfg).to(device)
         old_model.load_state_dict(model.state_dict())
         old_model.eval()
         for p in old_model.parameters():

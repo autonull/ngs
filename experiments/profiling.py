@@ -187,11 +187,23 @@ if __name__ == '__main__':
     # Quick test
     from experiments.config import EXPERIMENTS
     from experiments.baselines import create_baseline
-    from experiments.lean_ngs_trainer import create_lean_ngs
+    from ngs.models.ngs import build_ngs
+    from ngs.core.interfaces import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
     
     config = EXPERIMENTS['split_mnist']
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     input_shape = (256, config.input_dim)
+    
+    ngs_cfg = NGSConfig(
+        latent_dim=32,
+        max_k=448,
+        k_init=128,
+        top_k=8,
+        routing=RoutingStrategy.MONOLITHIC_MAHALANOBIS,
+        parameter_storage=ParameterStorage.DIRECT_ADAPTER,
+        topology_control=TopologyControl.DISCRETE_HEURISTIC,
+        memory_management=MemoryManagement.PRE_ALLOCATED,
+    )
     
     models = {
         'MLP': create_baseline('mlp', config.input_dim, config.output_dim),
@@ -199,9 +211,35 @@ if __name__ == '__main__':
         'EWC': create_baseline('ewc', config.input_dim, config.output_dim),
         'LwF': create_baseline('lwf', config.input_dim, config.output_dim),
         'LoRA': create_baseline('lora', config.input_dim, config.output_dim),
-        'LeanNGS': create_lean_ngs(config.input_dim, config.output_dim, **{
-            'd_latent': 32, 'k_init': 128, 'max_k': 448, 'top_k': 8
-        }),
+        'NGS-Baseline': build_ngs(config.input_dim, config.output_dim, ngs_cfg),
+    }
+    
+    from experiments.baselines import create_baseline
+    from ngs.models.ngs import build_ngs
+    from ngs.core.interfaces import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
+    
+    config = EXPERIMENTS['split_mnist']
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    input_shape = (256, config.input_dim)
+    
+    ngs_cfg = NGSConfig(
+        latent_dim=32,
+        max_k=448,
+        k_init=128,
+        top_k=8,
+        routing=RoutingStrategy.MONOLITHIC_MAHALANOBIS,
+        parameter_storage=ParameterStorage.DIRECT_ADAPTER,
+        topology_control=TopologyControl.DISCRETE_HEURISTIC,
+        memory_management=MemoryManagement.PRE_ALLOCATED,
+    )
+    
+    models = {
+        'MLP': create_baseline('mlp', config.input_dim, config.output_dim),
+        'ER': create_baseline('er', config.input_dim, config.output_dim),
+        'EWC': create_baseline('ewc', config.input_dim, config.output_dim),
+        'LwF': create_baseline('lwf', config.input_dim, config.output_dim),
+        'LoRA': create_baseline('lora', config.input_dim, config.output_dim),
+        'NGS-Baseline': build_ngs(config.input_dim, config.output_dim, ngs_cfg),
     }
     
     results = compare_models(models, input_shape, device)

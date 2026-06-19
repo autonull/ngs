@@ -13,18 +13,21 @@ import copy
 class FederatedClient:
     """Simulated federated learning client."""
     
-    def __init__(self, model, data_loader, lr=0.01):
+    def __init__(self, model, data_loader, lr=0.01, device='cpu'):
         self.model = model
         self.data_loader = data_loader
         self.lr = lr
+        self.device = device
         self.optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     
     def local_train(self, epochs=1):
         self.model.train()
         for _ in range(epochs):
             for x, y in self.data_loader:
+                x, y = x.to(self.device), y.to(self.device)
                 self.optimizer.zero_grad()
-                logits = self.model(x)
+                output = self.model(x)
+                logits = output.logits if hasattr(output, 'logits') else output
                 loss = F.cross_entropy(logits, y)
                 loss.backward()
                 self.optimizer.step()
@@ -41,7 +44,13 @@ def federated_averaging(updates: List[dict]) -> dict:
     """Simple FedAvg aggregation."""
     avg_update = {}
     for key in updates[0]:
-        avg_update[key] = torch.stack([u[key] for u in updates]).mean(dim=0)
+        tensors = [u[key] for u in updates]
+        if tensors[0].dtype in (torch.float32, torch.float64, torch.float16, torch.bfloat16, 
+                                 torch.complex64, torch.complex128):
+            avg_update[key] = torch.stack(tensors).mean(dim=0)
+        else:
+            # For non-float types (bool, int), use the first client's value
+            avg_update[key] = tensors[0].clone()
     return avg_update
 
 
@@ -103,7 +112,7 @@ def run_federated_benchmark(
             torch.utils.data.TensorDataset(clients_x[i], clients_y[i]),
             batch_size=32, shuffle=True
         )
-        clients.append(FederatedClient(client_model, client_loader))
+        clients.append(FederatedClient(client_model, client_loader, device=device))
 
     round_acc = []
     comm_cost = 0
@@ -129,7 +138,9 @@ def run_federated_benchmark(
         test_x = torch.randn(200, 28 * 28).to(device)
         test_y = torch.randint(0, 10, (200,)).to(device)
         with torch.no_grad():
-            acc = (global_model(test_x).argmax(1) == test_y).float().mean().item()
+            output = global_model(test_x)
+            logits = output.logits if hasattr(output, 'logits') else output
+            acc = (logits.argmax(1) == test_y).float().mean().item()
         round_acc.append(acc)
 
         if rnd % 10 == 0:

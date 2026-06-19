@@ -54,7 +54,8 @@ def compute_nll(model: nn.Module, data: torch.Tensor, device: str = "cpu") -> fl
         nlls = []
         for i in range(0, len(data), batch_size):
             batch = data[i:i+batch_size]
-            logits = model(batch)
+            output = model(batch)
+            logits = output.logits if hasattr(output, 'logits') else output
             # For density estimation, we use the routing weights as log-prob
             # This is a simplified NLL computation
             log_probs = F.log_softmax(logits, dim=-1)
@@ -106,7 +107,7 @@ def run_density_benchmark(
         routing=RoutingStrategy.FACTORIZED_SUBSPACE,
         parameter_storage=ParameterStorage.DIRECT_ADAPTER,
         topology_control=TopologyControl.CONTINUOUS_DENSITY,
-        memory_management=MemoryManagement.PRE_ALLOCATED_MASKED,
+        memory_management=MemoryManagement.PRE_ALLOCATED,
         num_subspaces=2,
         split_threshold=0.05,
         prune_threshold=0.01,

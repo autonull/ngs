@@ -36,7 +36,7 @@ def create_objective(
         
         try:
             result = run_experiment(
-                config, 'lean_ngs', seed=seed, 
+                config, 'ngs_baseline', seed=seed, 
                 output_dir=f'./hpo_results/{experiment_name}',
                 verbose=False
             )
@@ -60,7 +60,7 @@ def run_hpo(
     
     study = optuna.create_study(
         direction='maximize',
-        study_name=f'{experiment_name}_lean_ngs',
+        study_name=f'{experiment_name}_ngs_baseline',
         storage=storage,
         load_if_exists=True
     )

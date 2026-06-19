@@ -152,11 +152,36 @@ def run_benchmark(
     for seed in seeds:
         set_seed(seed)
         print(f"\n  [{name}] seed={seed}")
+        # Handle different parameter names for different benchmark types
+        call_params = {k: v for k, v in params.items() if k not in ("experiment",)}
+        category = entry["category"]
+        
+        # Map epochs_per_task to epochs for non-CL benchmarks
+        if "epochs_per_task" in call_params and "epochs" not in call_params:
+            call_params["epochs"] = call_params.pop("epochs_per_task")
+        
+        # Category-specific parameter filtering
+        if category == "rl":
+            # RL benchmarks use total_timesteps, not epochs or batch_size
+            call_params.pop("epochs", None)
+            call_params.pop("batch_size", None)
+        elif category == "federated":
+            # Federated benchmarks use n_rounds, local_epochs
+            call_params.pop("epochs", None)
+            call_params.pop("epochs_per_task", None)
+            call_params.pop("batch_size", None)
+        elif category == "fewshot":
+            # Few-shot uses epochs (meta-epochs)
+            call_params.pop("batch_size", None)
+        elif category in ("vision", "nlp", "density", "robotics"):
+            # These use epochs and batch_size
+            pass
+        
         result = fn(
             device=device,
             seed=seed,
             output_dir=output_dir,
-            **{k: v for k, v in params.items() if k not in ("experiment",)},
+            **call_params,
         )
         result["seed"] = seed
         all_results.append(result)
@@ -176,8 +201,9 @@ def _run_cl_benchmark(
         return {"error": f"Unknown CL experiment: {name}"}
 
     # Apply overrides
-    if "epochs_per_task" in params:
-        exp_config.train.epochs_per_task = params["epochs_per_task"]
+    epochs_per_task = params.get("epochs_per_task", params.get("epochs"))
+    if epochs_per_task is not None:
+        exp_config.train.epochs_per_task = epochs_per_task
     if "batch_size" in params:
         exp_config.train.batch_size = params["batch_size"]
     if "lr" in params:
@@ -191,7 +217,7 @@ def _run_cl_benchmark(
         print(f"\n  [{name}] seed={seed}")
         result = run_experiment(
             config=exp_config,
-            model_name="lean_ngs",
+            model_name="ngs_baseline",
             seed=seed,
             output_dir=output_dir,
             verbose=False,
@@ -269,7 +295,6 @@ def main():
     overrides = {}
     if args.epochs is not None:
         overrides["epochs"] = args.epochs
-        overrides["epochs_per_task"] = args.epochs
     if args.batch_size is not None:
         overrides["batch_size"] = args.batch_size
     if args.lr is not None:

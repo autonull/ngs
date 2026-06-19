@@ -1,6 +1,5 @@
 """
-MNGS trainer integrated with experiment framework.
-Uses ngs package (migrated from mngs).
+NGS trainer integrated with experiment framework.
 """
 import torch
 import torch.nn as nn
@@ -17,7 +16,7 @@ from experiments.datasets import ReplayBuffer
 from experiments.metrics import evaluate_model_on_task
 
 
-def train_mngs(model, train_loader: DataLoader, task_id: int,
+def train_ngs(model, train_loader: DataLoader, task_id: int,
                 old_model=None, device='cuda',
                 epochs=5, lr=1e-3, weight_decay=1e-4,
                 replay_buffer: ReplayBuffer = None, replay_ratio=1.0,
@@ -182,7 +181,7 @@ def initialize_model_weights(model):
             nn.init.orthogonal_(param)
 
 
-def create_mngs(input_dim: int, output_dim: int, config: 'NGSConfig' = None, **kwargs) -> torch.nn.Module:
+def create_ngs(input_dim: int, output_dim: int, config: 'NGSConfig' = None, **kwargs) -> torch.nn.Module:
     """Create NGS model from config or kwargs."""
     if config is None:
         config = NGSConfig(
@@ -260,7 +259,7 @@ def _make_preset_config(name: str, input_dim: int, output_dim: int, use_lora: bo
     )
 
 
-def create_mngs_from_profile(name: str, input_dim: int, output_dim: int) -> torch.nn.Module:
+def create_ngs_from_profile(name: str, input_dim: int, output_dim: int) -> torch.nn.Module:
     """Create NGS from a named profile."""
     config = _make_preset_config(name, input_dim, output_dim)
     model = build_ngs(input_dim, output_dim, config)

@@ -87,14 +87,25 @@ def create_backbone_ngs(
     lora_rank: int = 4,
     freeze_backbone: bool = True
 ) -> BackboneNGS:
-    """Create backbone + LeanNGS head combo."""
-    from experiments.lean_ngs_trainer import create_lean_ngs
+    """Create backbone + NGS head combo."""
+    from ngs.models.ngs import build_ngs
+    from ngs.core.interfaces import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
     
     backbone = PretrainedBackbone(backbone_name, freeze=freeze_backbone)
-    ngs_head = create_lean_ngs(
-        backbone.feature_dim, num_classes,
-        d_latent=d_latent, k_init=k_init, max_k=max_k, top_k=top_k, lora_rank=lora_rank
+    
+    cfg = NGSConfig(
+        latent_dim=d_latent,
+        max_k=max_k,
+        k_init=k_init,
+        top_k=top_k,
+        routing=RoutingStrategy.FACTORIZED_SUBSPACE,
+        parameter_storage=ParameterStorage.LORA,
+        topology_control=TopologyControl.DISCRETE_HEURISTIC,
+        memory_management=MemoryManagement.PRE_ALLOCATED,
+        use_lora=True,
+        lora_rank=lora_rank,
     )
+    ngs_head = build_ngs(backbone.feature_dim, num_classes, cfg)
     
     return BackboneNGS(backbone, ngs_head)
 

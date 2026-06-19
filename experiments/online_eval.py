@@ -217,19 +217,29 @@ def print_online_results(results: Dict[str, OnlineResult]):
 if __name__ == '__main__':
     from experiments.config import EXPERIMENTS
     from experiments.baselines import create_baseline
-    from experiments.lean_ngs_trainer import create_lean_ngs
+    from ngs.models.ngs import build_ngs
+    from ngs.core.interfaces import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
     
     config = EXPERIMENTS['split_mnist']
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    ngs_cfg = NGSConfig(
+        latent_dim=32,
+        max_k=1024,
+        k_init=128,
+        top_k=8,
+        routing=RoutingStrategy.MONOLITHIC_MAHALANOBIS,
+        parameter_storage=ParameterStorage.DIRECT_ADAPTER,
+        topology_control=TopologyControl.DISCRETE_HEURISTIC,
+        memory_management=MemoryManagement.PRE_ALLOCATED,
+    )
     
     models = {
         'MLP': create_baseline('mlp', config.input_dim, config.output_dim),
         'ER': create_baseline('er', config.input_dim, config.output_dim),
         'EWC': create_baseline('ewc', config.input_dim, config.output_dim),
         'LwF': create_baseline('lwf', config.input_dim, config.output_dim),
-        'LeanNGS': create_lean_ngs(config.input_dim, config.output_dim, **{
-            'd_latent': 32, 'k_init': 128, 'max_k': 1024, 'top_k': 8
-        }),
+        'NGS-Baseline': build_ngs(config.input_dim, config.output_dim, ngs_cfg),
     }
     
     # Use smaller sample count for quick test

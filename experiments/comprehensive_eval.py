@@ -198,7 +198,7 @@ def generate_latex_table(aggregated_by_model: dict, aggregated_by_exp: dict):
     print("Experiment & " + " & ".join([m.replace('_', ' ').title() for m in metrics]) + " \\\\")
     print("\\midrule")
     for exp in sorted(aggregated_by_exp.keys()):
-        if 'lean_ngs' in exp.lower():
+        if 'ngs' in exp.lower():
             row = [exp.replace('_', '-')]
             for metric in metrics:
                 mean = aggregated_by_exp[exp][metric]['mean']
@@ -216,7 +216,7 @@ if __name__ == '__main__':
                         default=['split_mnist', 'split_fashion', 'split_cifar10'],
                         choices=list(EXPERIMENTS.keys()))
     parser.add_argument('--models', nargs='+', 
-                        default=['lean_ngs', 'mlp', 'er', 'ewc', 'si', 'lwf', 'lora'])
+                        default=['ngs_baseline', 'mlp', 'er', 'ewc', 'si', 'lwf', 'lora'])
     parser.add_argument('--seeds', nargs='+', type=int, default=[42, 123, 456])
     parser.add_argument('--output-dir', default='./results')
     parser.add_argument('--plots-dir', default='./plots')

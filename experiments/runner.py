@@ -19,7 +19,7 @@ from experiments.metrics import (
     compute_metrics, run_continual_evaluation, evaluate_model_on_task, print_results
 )
 from experiments.trainers import get_trainer
-from experiments.mngs_trainer import train_mngs, create_mngs, create_mngs_from_profile, PROFILE_TRAIN_CONFIGS
+from experiments.ngs_trainer import train_ngs, create_ngs, create_ngs_from_profile, PROFILE_TRAIN_CONFIGS
 
 
 def set_seed(seed: int):
@@ -49,11 +49,11 @@ def run_experiment(
         # Parse profile name (e.g., 'ngs_baseline')
         profile = model_name[4:]
         try:
-            model = create_mngs_from_profile(profile, config.input_dim, config.output_dim)
+            model = create_ngs_from_profile(profile, config.input_dim, config.output_dim)
         except ValueError as e:
             print(f"Warning: {e}. Using baseline profile.")
-            model = create_mngs_from_profile('baseline', config.input_dim, config.output_dim)
-        train_fn = train_mngs
+            model = create_ngs_from_profile('baseline', config.input_dim, config.output_dim)
+        train_fn = train_ngs
         train_kwargs = as_train_kwargs(config.train)
         # Apply profile-specific train overrides
         if profile in PROFILE_TRAIN_CONFIGS:

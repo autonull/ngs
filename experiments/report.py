@@ -1,5 +1,5 @@
 """
-Generate comprehensive validation report for LeanNGS.
+Generate comprehensive validation report for NGS.
 """
 import json
 import os
@@ -91,19 +91,21 @@ def compute_aggregate_stats(results: Dict[str, Any]) -> Dict[str, Any]:
 def generate_markdown_report(stats: Dict[str, Any], output_path: str):
     """Generate markdown report from statistics."""
     lines = []
-    lines.append("# LeanNGS Comprehensive Validation Report")
+    lines.append("# NGS Comprehensive Validation Report")
     lines.append("")
     lines.append("## Executive Summary")
     lines.append("")
     
     # Overall best model
     model_stats = stats['by_model']
-    if 'lean_ngs' in model_stats:
-        lean = model_stats['lean_ngs']
-        lines.append(f"- **LeanNGS Average Final Accuracy**: {lean.get('avg_final_accuracy', {}).get('mean', 0):.2%} (±{lean.get('avg_final_accuracy', {}).get('std', 0):.2%})")
-        lines.append(f"- **LeanNGS Average Forgetting**: {lean.get('avg_forgetting', {}).get('mean', 0):.2%} (±{lean.get('avg_forgetting', {}).get('std', 0):.2%})")
-        lines.append(f"- **LeanNGS BWT**: {lean.get('bwt', {}).get('mean', 0):.2%} (±{lean.get('bwt', {}).get('std', 0):.2%})")
-        lines.append(f"- **LeanNGS LA**: {lean.get('la', {}).get('mean', 0):.2%} (±{lean.get('la', {}).get('std', 0):.2%})")
+    ngs_models = [m for m in model_stats.keys() if m.startswith('ngs_')]
+    if ngs_models:
+        for ngs_model in ngs_models:
+            lean = model_stats[ngs_model]
+            lines.append(f"- **{ngs_model.upper()} Average Final Accuracy**: {lean.get('avg_final_accuracy', {}).get('mean', 0):.2%} (±{lean.get('avg_final_accuracy', {}).get('std', 0):.2%})")
+            lines.append(f"- **{ngs_model.upper()} Average Forgetting**: {lean.get('avg_forgetting', {}).get('mean', 0):.2%} (±{lean.get('avg_forgetting', {}).get('std', 0):.2%})")
+            lines.append(f"- **{ngs_model.upper()} BWT**: {lean.get('bwt', {}).get('mean', 0):.2%} (±{lean.get('bwt', {}).get('std', 0):.2%})")
+            lines.append(f"- **{ngs_model.upper()} LA**: {lean.get('la', {}).get('mean', 0):.2%} (±{lean.get('la', {}).get('std', 0):.2%})")
     lines.append("")
     
     # By scenario
@@ -160,7 +162,7 @@ def generate_markdown_report(stats: Dict[str, Any], output_path: str):
     lines.append("|-------|--------------|---------------|-------------|--------|")
     lines.append("| MLP/ER/EWC/LwF | ~0.23 | ~1.13 | 29-41 | 534K |")
     lines.append("| LoRA | ~0.33 | ~1.40 | 41 | 38K |")
-    lines.append("| **LeanNGS** | **~0.64** | **~2.64** | **79** | **513K** |")
+    lines.append("| **NGS-Baseline** | **~0.64** | **~2.64** | **79** | **513K** |")
     lines.append("")
     
     # Online evaluation
@@ -172,15 +174,15 @@ def generate_markdown_report(stats: Dict[str, Any], output_path: str):
     lines.append("| ER | 69.0% | 29.5% | 1.30 |")
     lines.append("| EWC | 62.1% | 35.8% | 1.30 |")
     lines.append("| LwF | 71.0% | 28.2% | 1.25 |")
-    lines.append("| **LeanNGS** | **68.5%** | **29.8%** | **2.79** |")
+    lines.append("| **NGS-Baseline** | **68.5%** | **29.8%** | **2.79** |")
     lines.append("")
     
     # Conclusions
     lines.append("## Conclusions")
     lines.append("")
-    lines.append("1. **LeanNGS excels at class-incremental learning** with near-zero forgetting on MNIST/Fashion")
-    lines.append("2. **At matched parameter counts (~513K)**, LeanNGS outperforms all baselines on Split-MNIST (76.3% vs 73.3% LwF) and Split-Fashion (89.8% vs 77.4% LwF)")
-    lines.append("3. **On Split-CIFAR10**, LeanNGS (68.4%/4.1%) is competitive with LwF (70.5%/9.9%) but with 2.4x less forgetting")
+    lines.append("1. **NGS excels at class-incremental learning** with near-zero forgetting on MNIST/Fashion")
+    lines.append("2. **At matched parameter counts (~513K)**, NGS outperforms all baselines on Split-MNIST (76.3% vs 73.3% LwF) and Split-Fashion (89.8% vs 77.4% LwF)")
+    lines.append("3. **On Split-CIFAR10**, NGS (68.4%/4.1%) is competitive with LwF (70.5%/9.9%) but with 2.4x less forgetting")
     lines.append("4. **Domain-incremental remains challenging** (Permuted-MNIST 39%/36.5%)")
     lines.append("5. **Knowledge distillation is critical** - without KD, forgetting increases 6x")
     lines.append("6. **Adaptive capacity** grows with task complexity (128→~150 units for 5-task MNIST)")
