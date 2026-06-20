@@ -222,3 +222,77 @@ This R&D plan is designed to extract maximum theoretical, practical, and commerc
 2.  **Sub-Linear Everything:** Relentlessly optimize for $O(\log N)$ or $O(1)$ inference. The true power of mNGS is that it can scale to trillions of parameters while maintaining the inference speed of a million-parameter model.
 3.  **Open-Source the Substrate, Monetize the Ecosystem:** Release the core mNGS mathematics as an open-source standard (the "Linux of Adaptive AI"), but build proprietary, highly optimized hardware wrappers and "Liquefaction" APIs for enterprise LLMs.
 
+----
+
+**Exploring #6: Self-Referential / Meta-Adaptive Extensions for NGS**
+
+This is one of the most exciting high-leverage directions in the repo's **RESEARCH.md** (explicitly called out in Phase 1 as "Self-Referential Growth" and Phase 3 as "Tensorial Self-Organization" and "Meta-mNGS"). It leverages NGS's core strengths — modular topology control, hypernetwork codes, and dynamic Gaussian population — to make the system **self-improving**.
+
+### Core Concept
+Apply NGS *recursively* or *meta-level* to itself:
+- **Meta-Gaussians**: A subset (or separate population) of Gaussians whose "activations" and "adapters" control the *hyperparameters* or *strategies* of the base NGS system (e.g., split thresholds, routing subspaces, hypernet depth, merge frequency, learning rates).
+- **Tensorial Self-Organization**: Treat the entire NGS parameter tensor (means, scales, codes, routing matrices) as a "meta-scene" and run a lightweight NGS instance on it.
+- **Evolutionary / Auto-ML Loop**: Use population fitness (efficiency + generalization) as a signal to evolve the Gaussian "ecosystem."
+
+This turns NGS from a powerful adaptive learner into a **proto-AGI substrate** capable of autonomous cognitive evolution.
+
+### Specific Variations to Explore (Ordered by Feasibility → Impact)
+
+1. **Meta-Gaussian Controllers (Immediate Prototype)**
+   - Spawn dedicated "meta" Gaussians during high-uncertainty or performance-plateau events.
+   - Their outputs modulate:
+     - Split gate thresholds (dynamic vigilance).
+     - Number of subspaces in factorized routing.
+     - Hypernetwork code dimensionality or adapter rank.
+     - Topology strategy (switch between ContinuousDensity ↔ MergeAware).
+   - **Implementation Path**:
+     - Extend `TopologyControl` with a `MetaLearned` variant (already sketched in TODO.md configs).
+     - Add a small meta-NGS head that takes base system stats (current K, avg routing entropy, recent loss delta) as input.
+     - Use hypernetwork codes for meta-adapters (compact and composable).
+   - **Expected Gains**: Faster adaptation to new regimes; automatic hyperparameter tuning without external Optuna/HPO.
+
+2. **Recursive NGS on Its Own Weights ("Self-Splatting")**
+   - Periodically (or on trigger): Freeze base NGS → embed its parameters (flattened means, codes, etc.) into a latent space → run a tiny NGS instance that "splats" improvements back as updates or new base Gaussians.
+   - Inspired by RESEARCH.md's "Tensorial Self-Organization: Apply MNGS recursively to its own weights — a self-improving Gaussian computer."
+   - **Why Massive**: Enables genuine self-modification and compression. Could discover better internal representations autonomously.
+   - **Risks & Mitigations**: Stability — use very low learning rates + strong regularization on meta-updates. Start with toy MNIST-scale.
+
+3. **Evolutionary Pressure on Gaussian Population**
+   - Assign each Gaussian a fitness score (contribution to accuracy / negative param cost / specialization uniqueness via routing entropy).
+   - During merge/sleep phases: Reproduce high-fitness Gaussians (clone + mutate means/codes) and cull low-fitness ones.
+   - Meta-objective: Maximize long-horizon performance per active unit.
+   - Ties into RESEARCH.md Track D: "Evolutionary pressure on the Gaussian population."
+
+4. **Full Meta-mNGS (Outer Loop)**
+   - An outer NGS instance whose *sole task* is to optimize the configuration space of inner instances (the 216+ combos).
+   - Reward signal: Aggregate metrics from inner runs (e.g., domain-incremental accuracy / param efficiency).
+   - This is the "Meta-mNGS: The Self-Configuring Substrate" in RESEARCH.md Phase 4.
+
+5. **Living Ecosystem Dynamics**
+   - Introduce competition/symbiosis: Gaussians "bid" for activation slots; successful ones get more resources (larger scales/adapters).
+   - Meta-Gaussians act as "regulators" enforcing global homeostasis (total K bounds, diversity maintenance).
+   - Study phase transitions (as in RESEARCH.md Phase 3).
+
+### Potential Massive Performance Improvements
+- **Adaptation Speed**: Meta-control could reduce episodes-to-recover on domain shifts by 3-10× via on-the-fly strategy switching.
+- **Long-Horizon Stability**: Self-pruning + evolutionary culling prevents bloat far beyond current MergeAware.
+- **Data Efficiency**: Self-discovered configurations outperform hand-tuned ones, especially in zero/few-shot.
+- **Emergence**: Possibility of unexpected capabilities (e.g., automatic discovery of useful subspaces or task decompositions).
+- **Scalability**: Meta-level stays small while base population grows intelligently.
+
+### Experimentation Plan (Leveraging Existing Infrastructure)
+1. **Quick Prototype**: Use the ablation framework (`experiments/ablation.py`) + new `MetaLearned` topology. Add meta-stats to `NGSConfig`.
+2. **Validation**:
+   - Split-MNIST + strong domain shifts (baseline first).
+   - Measure: adaptation speed, final accuracy, active K stability, meta-update overhead.
+   - Compare variants: base NGS vs. +meta-Gaussians vs. +recursive.
+3. **Visualization**: Extend dashboard for meta-routing heatmaps and population fitness evolution (already strong viz suite in `ngs/visualization/`).
+4. **Scaling**: Run on CIFAR-100 / TinyShakespeare as per TODO.md Phase 1.
+5. **Tools**: `run_continuous_discovery.sh` can incorporate meta-experiments naturally.
+
+**Challenges**:
+- Compute overhead (mitigate with sparse meta-population, e.g., K_meta=8-16).
+- Stability of self-modification (gradient clipping, slow meta-LR).
+- Interpretability (track meta-Gaussian influence explicitly).
+
+This direction aligns perfectly with NGS's "liquid intelligence" vision. It's already foreshadowed heavily in the research docs, making it a natural extension. Implementing even the basic Meta-Gaussian Controllers could be a high-impact addition that differentiates NGS further.
