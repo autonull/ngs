@@ -260,6 +260,7 @@ class ContinuousDensityManager(BaseTopologyManager):
         self.split_gate_threshold = 0.65
         self.spawn_threshold = -5.0
         self.noise_std = 0.01
+        self.split_scale = 0.5
 
     def adapt_topology(self, model, split_thresh: float = None,
                        prune_thresh: float = None, spawn_thresh: float = None,

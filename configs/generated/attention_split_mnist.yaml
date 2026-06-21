@@ -1,7 +1,7 @@
-classes_per_task: 10
-dataset: rotated_mnist
+classes_per_task: 2
+dataset: split_mnist
 device: cuda
-experiment: Rotated-MNIST
+experiment: Split-MNIST
 input_dim: 784
 model:
   hypernetwork_code_dim: 8
@@ -12,13 +12,13 @@ model:
   num_subspaces: 4
   parameter_storage: direct_adapter
   prune_threshold: 0.01
-  routing: factorized_subspace
+  routing: gaussian_attention
   split_threshold: 0.05
   top_k: 8
-  topology_control: discrete_heuristic
-n_tasks: 10
+  topology_control: continuous_density
+n_tasks: 5
 output_dim: 10
-scenario: domain_incremental
+scenario: class_incremental
 seeds:
 - 42
 - 123

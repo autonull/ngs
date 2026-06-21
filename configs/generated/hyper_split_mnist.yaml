@@ -1,7 +1,7 @@
-classes_per_task: 10
-dataset: noisy_mnist
+classes_per_task: 2
+dataset: split_mnist
 device: cuda
-experiment: Noisy-MNIST
+experiment: Split-MNIST
 input_dim: 784
 model:
   hypernetwork_code_dim: 8
@@ -10,15 +10,15 @@ model:
   max_k: 512
   memory_management: pre_allocated
   num_subspaces: 4
-  parameter_storage: direct_adapter
+  parameter_storage: hypernetwork_generated
   prune_threshold: 0.01
-  routing: monolithic_mahalanobis
+  routing: factorized_subspace
   split_threshold: 0.05
   top_k: 8
-  topology_control: discrete_heuristic
+  topology_control: continuous_density
 n_tasks: 5
 output_dim: 10
-scenario: domain_incremental
+scenario: class_incremental
 seeds:
 - 42
 - 123

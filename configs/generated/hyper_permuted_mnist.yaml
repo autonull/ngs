@@ -1,7 +1,7 @@
 classes_per_task: 10
-dataset: blurry_mnist
+dataset: permuted_mnist
 device: cuda
-experiment: Blurry-MNIST
+experiment: Permuted-MNIST
 input_dim: 784
 model:
   hypernetwork_code_dim: 8
@@ -10,13 +10,13 @@ model:
   max_k: 512
   memory_management: pre_allocated
   num_subspaces: 4
-  parameter_storage: direct_adapter
+  parameter_storage: hypernetwork_generated
   prune_threshold: 0.01
   routing: factorized_subspace
   split_threshold: 0.05
   top_k: 8
-  topology_control: discrete_heuristic
-n_tasks: 5
+  topology_control: continuous_density
+n_tasks: 10
 output_dim: 10
 scenario: domain_incremental
 seeds:
