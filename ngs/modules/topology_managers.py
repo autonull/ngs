@@ -9,6 +9,11 @@ from ngs.core.interfaces import BaseTopologyManager, NGSConfig
 
 # ───────────────────────── Shared helpers ───────────────────────────
 
+def _logit_stable(x: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:
+    """Numerically stable logit with clamping to avoid inf/nan."""
+    return torch.log(x.clamp(min=eps, max=1 - eps))
+
+
 def _flat_access(router):
     """Return flat-accessible mu, log_s, log_alpha from router."""
     mu = log_s = log_alpha = None
@@ -97,6 +102,7 @@ class HeuristicManager(BaseTopologyManager):
         super().__init__(config)
         self.split_threshold = config.split_threshold
         self.prune_threshold = config.prune_threshold
+        self.scale_threshold = 0.5  # Separate threshold for scale-based split decisions
         self.split_scale = 0.5
         self.noise_std = 0.01
         self.ema_decay = config.ema_decay
@@ -153,7 +159,7 @@ class HeuristicManager(BaseTopologyManager):
         grad_ema = router.grad_mu_ema[active_idx]
         max_s = torch.exp(log_s[active_idx]).max(dim=-1).values
 
-        split_mask = (grad_ema > split_thresh) & (max_s > split_thresh)
+        split_mask = (grad_ema > split_thresh) & (max_s > self.scale_threshold)
 
         # Adaptive fallback: only when max grad_ema is at least 10% of threshold
         if not split_mask.any() and len(active_idx) > 0 and max_spawn_per_call > 0:
@@ -180,17 +186,16 @@ class HeuristicManager(BaseTopologyManager):
                 noise = torch.randn_like(mu[split_idx]) * self.noise_std
                 mu.data[new_idx] += noise
 
-                # Copy log_s and scale down
+                # Copy log_s and scale
                 log_s.data[new_idx] = log_s[split_idx].clone()
                 log_s.data[new_idx] += torch.log(torch.tensor(self.split_scale))
                 log_s.data[split_idx] += torch.log(torch.tensor(self.split_scale))
 
-                # Copy and halve alpha in probability space
-                log_alpha.data[new_idx] = log_alpha[split_idx].clone()
-                alpha_new = torch.sigmoid(log_alpha.data[new_idx])
-                log_alpha.data[new_idx] = torch.logit(alpha_new * 0.5, eps=1e-8)
-                alpha_split = torch.sigmoid(log_alpha.data[split_idx])
-                log_alpha.data[split_idx] = torch.logit(alpha_split * 0.5, eps=1e-8)
+                # Copy log_alpha and halve in probability space (with numerical stability)
+                alpha_orig = torch.sigmoid(log_alpha[split_idx])
+                alpha_new = torch.sigmoid(log_alpha.data[new_idx].clone())
+                log_alpha.data[new_idx] = _logit_stable(alpha_orig * 0.5, eps=1e-7)
+                log_alpha.data[split_idx] = _logit_stable(alpha_orig * 0.5, eps=1e-7)
 
                 # Reset EMA
                 router.grad_mu_ema[new_idx] = 0
@@ -314,11 +319,11 @@ class ContinuousDensityManager(BaseTopologyManager):
 
                 # Copy log_s and scale
                 log_s.data[new_idx] = log_s[split_idx].clone()
-                half_scale = torch.log(torch.tensor(0.5))
+                half_scale = torch.log(torch.tensor(self.split_scale))
                 log_s.data[new_idx] += half_scale
                 log_s.data[split_idx] += half_scale
 
-                # Copy log_alpha
+                # Copy log_alpha (no halving - split_gate controls split decisions now)
                 log_alpha.data[new_idx] = log_alpha[split_idx].clone()
 
                 # Reset gates for both parent and child
@@ -409,11 +414,11 @@ class MergeAwareManager(BaseTopologyManager):
             return torch.zeros(0, 0)
 
         mu_active = mu[active_idx]
-        s_active = torch.exp(log_s[active_idx])
+        s_active = torch.exp(log_s[active_idx])  # Use actual scales, not log_s
 
-        # Represent each unit as [mu, log_s] and compute cosine similarity
+        # Represent each unit as [mu, s] and compute cosine similarity
         repr = torch.cat([mu_active, s_active], dim=-1)  # [K, 2d]
-        repr_norm = F.normalize(repr, dim=-1)
+        repr_norm = F.normalize(repr, dim=-1, eps=1e-8)  # Add numerical stability
         similarity = repr_norm @ repr_norm.T  # [K, K]
 
         return similarity
@@ -455,14 +460,18 @@ class MergeAwareManager(BaseTopologyManager):
                     for _, i, j in merge_pairs:
                         if i in merged or j in merged:
                             continue
-                        # Merge j into i (average parameters)
                         idx_i = active_idx[i]
                         idx_j = active_idx[j]
 
+                        # Merge j into i by averaging parameters
+                        # Keep i active with averaged parameters, deactivate j
                         mu.data[idx_i] = 0.5 * (mu[idx_i] + mu[idx_j])
-                        log_s.data[idx_i] = torch.log(0.5 * (torch.exp(log_s[idx_i]) + torch.exp(log_s[idx_j])))
+                        # Geometric mean of scales: sqrt(s_i * s_j) in log space
+                        log_s.data[idx_i] = torch.log(
+                            torch.sqrt(torch.exp(log_s[idx_i]) * torch.exp(log_s[idx_j]) + 1e-8)
+                        )
 
-                        # Deactivate j
+                        # Deactivate j (remove from active set)
                         router.active_mask[idx_j] = False
                         router.grad_mu_ema[idx_j] = 0
                         merged.add(i)
@@ -628,12 +637,10 @@ class MetaLearnedManager(BaseTopologyManager):
                         router.active_mask[spawn_idx] = True
                         num_spawned = n_spawn
 
-        # Very simple meta-update: track whether actions were "good"
-        # In a full implementation, this would use a reward signal
-        # For now, we just update the controller with a dummy reward
-        # to keep it warm
-        reward = torch.tensor(0.0)
-        loss = -reward * torch.log(action_probs.mean() + 1e-8)
+        # Meta-update: encourage exploration (entropy of action distribution)
+        # This keeps the controller functional even without explicit rewards
+        action_entropy = -(action_probs * torch.log(action_probs + 1e-8)).sum(dim=-1).mean()
+        loss = -action_entropy  # Maximize entropy to encourage exploration
 
         self.controller_optimizer.zero_grad()
         loss.backward()

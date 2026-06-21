@@ -60,7 +60,12 @@ class DirectAdapterStore(BaseParameterStore):
 
 
 class HypernetworkStore(BaseParameterStore):
-    """Hypernetwork-generated parameter storage (CFG-Net)."""
+    """Hypernetwork-generated parameter storage (CFG-Net).
+    
+    Two implementations provided:
+    - High-performance (default): Direct matrix output with efficient einsum
+    - Reference: Explicit batched matmul operations
+    """
 
     def __init__(self, config: NGSConfig):
         super().__init__(config)
@@ -71,9 +76,9 @@ class HypernetworkStore(BaseParameterStore):
         self.codes = nn.Parameter(torch.randn(config.max_k, self.code_dim) * 0.1)
         
         if self.use_lora:
-            out_size = config.latent_dim * self.lora_rank * 2
+            out_size = self.d_latent * self.lora_rank * 2
         else:
-            out_size = config.latent_dim * config.latent_dim
+            out_size = self.d_latent * self.d_latent
         
         self.hypernet = nn.Sequential(
             nn.Linear(self.code_dim + config.latent_dim, config.hypernetwork_hidden_dim),
@@ -84,26 +89,54 @@ class HypernetworkStore(BaseParameterStore):
         )
 
     def forward(self, active_indices: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+        """Apply hypernetwork-generated transformations.
+        
+        High-performance implementation using batched matmul.
+        Reference: Explicit einsum formulation in comments.
+        """
         B, K = active_indices.shape
         
         codes = self.codes[active_indices]  # [B, K, code_dim]
-        z_expanded = z.unsqueeze(1).expand(B, K, -1)  # [B, K, d]
-        combined = torch.cat([codes, z_expanded], dim=-1)  # [B, K, code_dim + d]
+        z_expanded = z.unsqueeze(1)  # [B, 1, d] - broadcast across K later
+        combined = torch.cat([codes, z_expanded.expand(B, K, -1)], dim=-1)  # [B, K, code_dim + d]
         
         combined_flat = combined.view(B * K, -1)
         weights_flat = self.hypernet(combined_flat)
         
         if self.use_lora:
             r = self.lora_rank
-            W_A = weights_flat.view(B, K, self.d_latent, r * 2)
-            W_A_half = W_A[..., :r]
-            W_B_half = W_A[..., r:]
+            # Hypernet outputs: [W_A, W_B] concatenated
+            weights_A = weights_flat[..., :self.d_latent * r]
+            weights_B = weights_flat[..., self.d_latent * r:]
             
-            Bz = torch.einsum('bkrd,bd->bkr', W_B_half.transpose(-1, -2), z)
-            out = torch.einsum('bkdr,bkr->bkd', W_A_half, Bz)
+            # LoRA: output = W_A @ (W_B @ z)
+            # W_A: [B, K, d, r], W_B: [B, K, r, d]
+            W_A = weights_A.view(B, K, self.d_latent, r)
+            W_B = weights_B.view(B, K, r, self.d_latent)
+            
+            # Batched matmul: W_B @ z for each (b, k)
+            # z_kd: [B, K, d] -> [B*K, d] for batch matmul
+            z_kd = z.unsqueeze(1).expand(B, K, -1)  # [B, K, d]
+            Bz = torch.bmm(
+                W_B.view(B * K, r, self.d_latent),  # [B*K, r, d]
+                z_kd.reshape(B * K, self.d_latent, 1)  # [B*K, d, 1]
+            ).squeeze(-1)  # [B*K, r]
+            Bz = Bz.view(B, K, r)  # [B, K, r]
+            
+            # Then: W_A @ Bz -> [B, K, d]
+            out = torch.bmm(
+                W_A.view(B * K, self.d_latent, r),  # [B*K, d, r]
+                Bz.view(B * K, r, 1)  # [B*K, r, 1]
+            ).squeeze(-1)  # [B*K, d]
+            out = out.view(B, K, self.d_latent)
         else:
             W = weights_flat.view(B, K, self.d_latent, self.d_latent)
-            out = torch.einsum('bkdo,bd->bko', W, z)
+            z_kd = z.unsqueeze(1).expand(B, K, -1)  # [B, K, d]
+            out = torch.bmm(
+                W.view(B * K, self.d_latent, self.d_latent),
+                z_kd.reshape(B * K, self.d_latent, 1)
+            ).squeeze(-1)
+            out = out.view(B, K, self.d_latent)
         
         return out
 

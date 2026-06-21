@@ -224,17 +224,25 @@ class NGSModel(nn.Module):
         
         if hasattr(routing_output, 'weights'):
             if routing_output.level_weights is not None:
-                # Factorized routing
+                # Factorized routing: weight entropy by active units per subspace
                 entropy = 0.0
+                weights_list = []
                 for weights in routing_output.level_weights:
-                    p = weights
-                    entropy += -(p * torch.log(p + 1e-8)).sum(dim=-1).mean()
-                return entropy / len(routing_output.level_weights)
+                    if weights.sum() > 0:
+                        p = weights / (weights.sum(dim=-1, keepdim=True).clamp(min=1e-8))
+                        weights_list.append(p)
+                num_levels = len(weights_list)
+                if num_levels > 0:
+                    for p in weights_list:
+                        entropy += -(p * torch.log(p + 1e-8)).sum(dim=-1).mean()
+                    return entropy / num_levels
+                return torch.tensor(0.0, device=self.p_down.weight.device)
             else:
                 # Monolithic routing
                 weights = routing_output.weights
-                p = weights
-                return -(p * torch.log(p + 1e-8)).sum(dim=-1).mean()
+                if weights.sum() > 0:
+                    p = weights / (weights.sum(dim=-1, keepdim=True).clamp(min=1e-8))
+                    return -(p * torch.log(p + 1e-8)).sum(dim=-1).mean()
         
         return torch.tensor(0.0, device=self.p_down.weight.device)
     
@@ -285,6 +293,7 @@ class NGSModel(nn.Module):
         sig = torch.sigmoid(self.split_gate)
         # Normalize error density to [0, 1] as target
         err = self.error_density / (self.error_density.max() + 1e-8)
+        # Use sigmoid output matching for BCE (both in [0,1])
         return F.binary_cross_entropy(sig, err.detach())
     
     def diversity_loss(self) -> torch.Tensor:
@@ -309,7 +318,10 @@ class NGSModel(nn.Module):
                 mu_s = router.mu[s][sub_active]
                 dist = torch.cdist(mu_s, mu_s, p=2)
                 eye = ~torch.eye(len(sub_active), dtype=torch.bool, device=mu_s.device)
-                losses.append(-dist[eye].min())
+                if eye.any():
+                    min_dist = dist[eye].min()
+                    if not torch.isnan(min_dist):
+                        losses.append(-min_dist)
             if not losses:
                 return torch.tensor(0.0, device=self.p_down.weight.device)
             return torch.stack(losses).mean()
@@ -318,8 +330,10 @@ class NGSModel(nn.Module):
         mu = router.mu[active_idx]
         dist = torch.cdist(mu, mu, p=2)
         mask = ~torch.eye(len(active_idx), dtype=torch.bool, device=mu.device)
+        if not mask.any():
+            return torch.tensor(0.0, device=self.p_down.weight.device)
         min_dist = dist[mask].min()
-        return -min_dist
+        return -min_dist if not torch.isnan(min_dist) else torch.tensor(0.0, device=self.p_down.weight.device)
     
     def compute_topology_losses(self) -> Dict[str, torch.Tensor]:
         """Compute all topology-related losses."""
