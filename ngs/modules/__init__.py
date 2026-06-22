@@ -32,6 +32,12 @@ from ngs.modules.memory_managers import (
     build_memory_manager,
     BaseMemoryManager,
 )
+from ngs.modules.ngs_layer import (
+    NGSLayer,
+    StackedNGSModel,
+    MultiHeadProj,
+    build_stacked_ngs,
+)
 from ngs.modules.riemannian import (
     RiemannianHypernetworkManifold,
     HypernetworkCodeManifold,
@@ -50,6 +56,10 @@ from ngs.modules.advanced import (
 )
 
 __all__ = [
+    "NGSLayer",
+    "StackedNGSModel",
+    "MultiHeadProj",
+    "build_stacked_ngs",
     "MonolithicRouter",
     "FactorizedRouter",
     "LSRRouter",

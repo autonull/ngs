@@ -1,0 +1,35 @@
+experiment: Split-CIFAR100
+dataset: split_cifar100
+scenario: class_incremental
+n_tasks: 10
+classes_per_task: 10
+input_dim: 3072
+output_dim: 100
+model:
+  latent_dim: 64
+  k_init: 128
+  max_k: 512
+  top_k: 8
+  routing: factorized_subspace
+  parameter_storage: hypernetwork_generated
+  topology_control: continuous_density
+  memory_management: pre_allocated
+  num_subspaces: 4
+  hypernetwork_code_dim: 16
+  hypernetwork_hidden_dim: 64
+  split_threshold: 0.05
+  prune_threshold: 0.01
+training:
+  lr: 0.001
+  batch_size: 128
+  epochs_per_task: 20
+  weight_decay: 0.0001
+  adapt_every_epoch: true
+  diversity_weight: 0.01
+  entropy_weight: 0.01
+  kd_temperature: 2.0
+  kd_weight: 10.0
+  replay_ratio: 1.0
+  replay_size: 50000
+seeds: [42]
+device: cuda

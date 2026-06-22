@@ -1,0 +1,33 @@
+experiment: Split-CIFAR10-Hierarchical
+dataset: split_cifar10
+scenario: class_incremental
+n_tasks: 5
+classes_per_task: 2
+input_dim: 3072
+output_dim: 10
+model:
+  latent_dim: 128
+  k_init: 64
+  max_k: 256
+  top_k: 8
+  routing: monolithic_mahalanobis
+  parameter_storage: direct_adapter
+  topology_control: discrete_heuristic
+  memory_management: pre_allocated
+  # Hierarchical: 2 NGS layers
+  hierarchical: true
+  n_hierarchical_layers: 2
+training:
+  lr: 0.001
+  batch_size: 128
+  epochs_per_task: 5
+  weight_decay: 0.0001
+  adapt_every_epoch: true
+  diversity_weight: 0.01
+  entropy_weight: 0.01
+  kd_temperature: 2.0
+  kd_weight: 10.0
+  replay_ratio: 1.0
+  replay_size: 50000
+seeds: [42]
+device: cuda
