@@ -76,6 +76,7 @@ class NGSLayer(nn.Module):
         use_residual: bool = True,
         use_norm: bool = True,
         tau: float = 1.0,
+        **kwargs,
     ):
         super().__init__()
         self.d_in = d_in
@@ -131,6 +132,13 @@ class NGSLayer(nn.Module):
         # Learnable residual gate
         self.residual_gate = nn.Parameter(torch.tensor(1.0))
 
+        # Ablation flags (for controlled experiments)
+        self._ablation_remove_out_bias = kwargs.get('_remove_out_bias', False)
+        self._ablation_router_mu_std = kwargs.get('_router_mu_std', 0.1)
+
+        # Re-init router means with ablation-specified std
+        nn.init.normal_(self.router.mu, mean=0.0, std=self._ablation_router_mu_std)
+
         # Enable all units from the start
         self.router.active_mask[:] = True
 
@@ -160,8 +168,9 @@ class NGSLayer(nn.Module):
         w = routing.weights.unsqueeze(-1)  # [B, K, 1]
         out = (w * expert_out).sum(dim=1)  # [B, d_out]
 
-        # Output bias (baseline per-class)
-        out = out + self.out_bias
+        # Output bias (baseline per-class) — ablatable
+        if not self._ablation_remove_out_bias:
+            out = out + self.out_bias
 
         # Residual connection (when d_in == d_out)
         if self.use_residual:
@@ -229,6 +238,7 @@ class StackedNGSModel(nn.Module):
         use_residual: bool = True,
         use_norm: bool = True,
         tau: float = 1.0,
+        **kwargs,
     ):
         super().__init__()
 
@@ -259,6 +269,7 @@ class StackedNGSModel(nn.Module):
                 use_residual=use_residual,
                 use_norm=use_norm,
                 tau=tau,
+                **kwargs,
             ))
 
         self.layers = nn.ModuleList(layers)
@@ -293,6 +304,7 @@ def build_stacked_ngs(
     top_k: int = 8,
     use_residual: bool = True,
     use_norm: bool = True,
+    **kwargs,
 ) -> StackedNGSModel:
     """Factory function for StackedNGSModel.
 
@@ -306,11 +318,13 @@ def build_stacked_ngs(
         top_k: Active experts per sample
         use_residual: Enable residual connections on matching layers
         use_norm: Enable LayerNorm on residual path
+        **kwargs: Passed to NGSLayer (e.g., ablation flags)
     """
     return StackedNGSModel(
         d_in=d_in, d_out=d_out, n_layers=n_layers, d_latent=d_latent,
         n_experts=n_experts, n_heads=n_heads, top_k=top_k,
         use_residual=use_residual, use_norm=use_norm,
+        **kwargs,
     )
 
 
