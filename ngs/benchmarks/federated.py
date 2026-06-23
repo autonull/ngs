@@ -86,10 +86,26 @@ def run_federated_benchmark(
     from ngs.core import NGSConfig, RoutingStrategy, ParameterStorage, TopologyControl, MemoryManagement
     from ngs.models import build_ngs
 
-    # Create synthetic data
-    n_samples = n_clients * 200
-    x_all = torch.randn(n_samples, 28 * 28)
-    y_all = torch.randint(0, 10, (n_samples,))
+    # Create real MNIST data
+    from torchvision import datasets, transforms
+    from torch.utils.data import DataLoader, TensorDataset
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+    train_ds = datasets.MNIST('./data', train=True, download=True, transform=transform)
+    test_ds = datasets.MNIST('./data', train=False, download=True, transform=transform)
+    
+    x_all = train_ds.data.view(-1, 784).float() / 255.0
+    x_all = (x_all - 0.1307) / 0.3081
+    y_all = train_ds.targets
+    n_samples = min(n_clients * 200, len(x_all))
+    x_all = x_all[:n_samples]
+    y_all = y_all[:n_samples]
+    
+    test_x = test_ds.data.view(-1, 784).float() / 255.0
+    test_x = (test_x - 0.1307) / 0.3081
+    test_y = test_ds.targets
 
     config = NGSConfig(
         latent_dim=latent_dim,
@@ -135,8 +151,8 @@ def run_federated_benchmark(
 
         # Evaluate
         global_model.eval()
-        test_x = torch.randn(200, 28 * 28).to(device)
-        test_y = torch.randint(0, 10, (200,)).to(device)
+        test_x = test_x.to(device)
+        test_y = test_y.to(device)
         with torch.no_grad():
             output = global_model(test_x)
             logits = output.logits if hasattr(output, 'logits') else output

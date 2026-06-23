@@ -16,8 +16,9 @@ def compute_accuracy(model, loader, device):
         for x, y in loader:
             x, y = x.to(device), y.to(device)
             x = x.view(x.size(0), -1)
-            out = model(x)
-            _, pred = out.max(1)
+            out_obj = model(x)
+            logits = out_obj.logits
+            _, pred = logits.max(1)
             total += y.size(0)
             correct += pred.eq(y).sum().item()
     return correct / total
@@ -87,7 +88,7 @@ def run_class_incremental_benchmark(
         routing=RoutingStrategy.FACTORIZED_SUBSPACE,
         parameter_storage=ParameterStorage.HYPERNETWORK_GENERATED,
         topology_control=TopologyControl.CONTINUOUS_DENSITY,
-        memory_management=MemoryManagement.DYNAMIC_GROWTH,
+        memory_management=MemoryManagement.DYNAMIC,
         split_threshold=0.05,
         prune_threshold=0.01,
         num_subspaces=max(4, min(8, n_classes // 10)),
@@ -133,16 +134,18 @@ def run_class_incremental_benchmark(
 
                 optimizer = trainer.optimizer
                 optimizer.zero_grad()
-                out = model(x)
-                ce_loss = F.cross_entropy(out, y)
+                out_obj = model(x)
+                logits = out_obj.logits
+                ce_loss = F.cross_entropy(logits, y)
 
                 kd_loss = torch.tensor(0.0, device=device)
                 if old_model is not None and kd_weight > 0:
                     with torch.no_grad():
-                        old_out = old_model(x)
+                        old_out_obj = old_model(x)
+                        old_logits = old_out_obj.logits
                     kd_loss = F.kl_div(
-                        F.log_softmax(out / 2.0, dim=-1),
-                        F.softmax(old_out / 2.0, dim=-1),
+                        F.log_softmax(logits / 2.0, dim=-1),
+                        F.softmax(old_logits / 2.0, dim=-1),
                         reduction="batchmean",
                     ) * (2.0 ** 2)
 

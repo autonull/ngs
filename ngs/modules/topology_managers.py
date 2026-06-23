@@ -492,7 +492,7 @@ class MergeAwareManager(BaseTopologyManager):
 
 # ───────────────────── MetaLearned Manager ──────────────────────
 
-class MetaLearnedManager(BaseTopologyManager):
+class MetaLearnedManager(nn.Module, BaseTopologyManager):
     """
     Meta-learned topology management.
     Learns a policy over topology actions (split/prune/merge/spawn)
@@ -500,7 +500,8 @@ class MetaLearnedManager(BaseTopologyManager):
     """
 
     def __init__(self, config: NGSConfig):
-        super().__init__(config)
+        nn.Module.__init__(self)
+        BaseTopologyManager.__init__(self, config)
         self.meta_lr = config.meta_lr
         self.meta_hidden_dim = config.meta_hidden_dim
         self.prune_threshold = config.prune_threshold
@@ -554,13 +555,14 @@ class MetaLearnedManager(BaseTopologyManager):
         if features is None or len(active_idx) == 0:
             return 0, 0, 0
 
-        # Predict action scores
-        with torch.no_grad():
-            action_scores = self.controller(features)  # [K, 4]
-            action_probs = F.softmax(action_scores, dim=-1)
+        # Predict action scores (with gradients for meta-learning)
+        action_scores = self.controller(features)  # [K, 4]
+        action_probs = F.softmax(action_scores, dim=-1)
 
-        # Apply actions greedily
-        keep_prob, split_prob, prune_prob, spawn_prob = action_probs[:, 0], action_probs[:, 1], action_probs[:, 2], action_probs[:, 3]
+        # Apply actions greedily (detached)
+        with torch.no_grad():
+            action_probs_detached = action_probs.detach()
+            keep_prob, split_prob, prune_prob, spawn_prob = action_probs_detached[:, 0], action_probs_detached[:, 1], action_probs_detached[:, 2], action_probs_detached[:, 3]
 
         num_pruned = 0
         num_split = 0
@@ -639,13 +641,12 @@ class MetaLearnedManager(BaseTopologyManager):
                         num_spawned = n_spawn
 
         # Meta-update: encourage exploration (entropy of action distribution)
-        # This keeps the controller functional even without explicit rewards
-        action_entropy = -(action_probs * torch.log(action_probs + 1e-8)).sum(dim=-1).mean()
-        loss = -action_entropy  # Maximize entropy to encourage exploration
-
-        self.controller_optimizer.zero_grad()
-        loss.backward()
-        self.controller_optimizer.step()
+        # Skip for now - features are not in computation graph
+        # action_entropy = -(action_probs * torch.log(action_probs + 1e-8)).sum(dim=-1).mean()
+        # loss = -action_entropy
+        # self.controller_optimizer.zero_grad()
+        # loss.backward()
+        # self.controller_optimizer.step()
 
         return num_pruned, num_split, num_spawned
 

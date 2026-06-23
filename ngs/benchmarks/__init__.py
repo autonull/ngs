@@ -15,6 +15,8 @@ from .class_incremental import run_class_incremental_benchmark
 from .gossip import run_gossip_benchmark
 from .comparison import run_comparison_benchmark
 from .extended import run_vision_benchmark, run_nlp_benchmark, run_robotics_benchmark, run_extended_benchmark
+from .multimodal import run_multimodal_benchmark
+from .metagaussian import run_metagaussian_benchmark
 
 __all__ = [
     "run_density_benchmark",
@@ -35,4 +37,6 @@ __all__ = [
     "run_nlp_benchmark",
     "run_robotics_benchmark",
     "run_extended_benchmark",
+    "run_multimodal_benchmark",
+    "run_metagaussian_benchmark",
 ]
