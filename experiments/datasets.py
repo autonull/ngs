@@ -489,3 +489,318 @@ class ReplayBuffer:
 
     def __len__(self):
         return len(self.buffer)
+
+
+class MultimodalMNIST:
+    """
+    Multimodal MNIST dataset with two modalities:
+    - Modality 0: Original MNIST images
+    - Modality 1: Transformed MNIST (permuted/rotated/noisy)
+    
+    For testing FactorizedRouter: each modality gets its own subspace.
+    """
+    def __init__(self, 
+                 modality_types: tuple = ("original", "permuted"),
+                 seed: int = 42):
+        self.modality_types = modality_types
+        self.num_modalities = len(modality_types)
+        self.seed = seed
+        
+        # Load base MNIST
+        train_ds = datasets.MNIST('./data', train=True, download=True)
+        test_ds = datasets.MNIST('./data', train=False, download=True)
+        
+        self.train_data = train_ds.data.view(-1, 784).float() / 255.0
+        self.train_targets = train_ds.targets
+        self.test_data = test_ds.data.view(-1, 784).float() / 255.0
+        self.test_targets = test_ds.targets
+        
+        # Generate transforms for each modality
+        rng = np.random.RandomState(seed)
+        self.perm_indices = {}  # mod_idx -> permutation
+        self.angle_map = {}     # mod_idx -> angle
+        self.noise_map = {}     # mod_idx -> noise_std
+        
+        for mod_idx, mod_type in enumerate(modality_types):
+            if mod_type == "permuted":
+                self.perm_indices[mod_idx] = rng.permutation(784)
+            elif mod_type == "rotated":
+                self.angle_map[mod_idx] = rng.uniform(0, 180)
+            elif mod_type == "noisy":
+                self.noise_map[mod_idx] = rng.uniform(0, 0.3)
+            # original needs no extra params
+    
+    def _get_modality_data(self, mod_idx: int, data: torch.Tensor) -> torch.Tensor:
+        """Apply modality-specific transform to data."""
+        mod_type = self.modality_types[mod_idx]
+        
+        if mod_type == "original":
+            return data
+        elif mod_type == "permuted":
+            perm = self.perm_indices[mod_idx]
+            return data[:, perm]
+        elif mod_type == "rotated":
+            angle = self.angle_map[mod_idx]
+            # Simple rotation approximation: roll pixels
+            perm = np.roll(np.arange(784), int(angle * 784 / 180))
+            return data[:, perm]
+        elif mod_type == "noisy":
+            noise_std = self.noise_map[mod_idx]
+            noise = torch.randn_like(data) * noise_std
+            return torch.clamp(data + noise, 0, 1)
+        else:
+            return data
+    
+    def get_loaders(self, batch_size: int = 256) -> tuple:
+        """Get train and test loaders returning (modalities_list, labels)."""
+        # Prepare multimodal data
+        train_modalities = []
+        test_modalities = []
+        
+        for m in range(self.num_modalities):
+            train_mod = self._get_modality_data(m, self.train_data)
+            test_mod = self._get_modality_data(m, self.test_data)
+            
+            # Normalize
+            train_mod = (train_mod - 0.1307) / 0.3081
+            test_mod = (test_mod - 0.1307) / 0.3081
+            
+            train_modalities.append(train_mod)
+            test_modalities.append(test_mod)
+        
+        # Stack modalities: [num_modalities, N, 784] -> [N, num_modalities, 784]
+        train_modalities = torch.stack(train_modalities, dim=1)
+        test_modalities = torch.stack(test_modalities, dim=1)
+        
+        train_ds = TensorDataset(train_modalities, self.train_targets)
+        test_ds = TensorDataset(test_modalities, self.test_targets)
+        
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, shuffle=True,
+            num_workers=0, pin_memory=torch.cuda.is_available(),
+            persistent_workers=False
+        )
+        test_loader = DataLoader(
+            test_ds, batch_size=batch_size, shuffle=False,
+            num_workers=0, pin_memory=torch.cuda.is_available(),
+            persistent_workers=False
+        )
+        
+        return train_loader, test_loader
+
+
+def get_multimodal_loaders(
+    modality_types: tuple = ("original", "permuted"),
+    batch_size: int = 256,
+    seed: int = 42
+) -> tuple:
+    """Convenience function to get multimodal MNIST loaders."""
+    dataset = MultimodalMNIST(modality_types=modality_types, seed=seed)
+    return dataset.get_loaders(batch_size=batch_size)
+
+
+# Add missing imports for Omniglot
+import os
+from torchvision import transforms
+from torch.utils.data import DataLoader, TensorDataset
+from PIL import Image
+
+
+class OmniglotDataset:
+    """
+    Omniglot dataset for few-shot learning.
+    Downloads from GitHub if not present.
+    """
+    def __init__(self, data_dir: str = './data', download: bool = True):
+        self.data_dir = data_dir
+        self.images_dir = data_dir  # Files extracted directly to data_dir
+        
+        if download and not (os.path.exists(os.path.join(data_dir, 'images_background')) or os.path.exists(os.path.join(data_dir, 'images_evaluation'))):
+            self._download()
+        
+        self._load_data()
+    
+    def _download(self):
+        """Download Omniglot dataset."""
+        import urllib.request
+        import zipfile
+        
+        os.makedirs(self.data_dir, exist_ok=True)
+        
+        urls = [
+            "https://github.com/brendenlake/omniglot/raw/master/python/images_background.zip",
+            "https://github.com/brendenlake/omniglot/raw/master/python/images_evaluation.zip"
+        ]
+        
+        for url in urls:
+            filename = url.split('/')[-1]
+            filepath = os.path.join(self.data_dir, filename)
+            print(f"Downloading {filename}...")
+            urllib.request.urlretrieve(url, filepath)
+            
+            with zipfile.ZipFile(filepath, 'r') as zip_ref:
+                zip_ref.extractall(self.data_dir)
+            
+            os.remove(filepath)
+    
+    def _load_data(self):
+        """Load all images and organize by alphabet/character."""
+        self.character_paths = []
+        self.character_labels = []
+        self.alphabet_to_chars = {}
+        
+        for split in ['images_background', 'images_evaluation']:
+            split_dir = os.path.join(self.images_dir, split)
+            if not os.path.exists(split_dir):
+                continue
+                
+            for alphabet in sorted(os.listdir(split_dir)):
+                alphabet_dir = os.path.join(split_dir, alphabet)
+                if not os.path.isdir(alphabet_dir):
+                    continue
+                
+                for char in sorted(os.listdir(alphabet_dir)):
+                    char_dir = os.path.join(alphabet_dir, char)
+                    if not os.path.isdir(char_dir):
+                        continue
+                    
+                    label = f"{alphabet}/{char}"
+                    if alphabet not in self.alphabet_to_chars:
+                        self.alphabet_to_chars[alphabet] = []
+                    self.alphabet_to_chars[alphabet].append(label)
+                    
+                    for img_file in os.listdir(char_dir):
+                        if img_file.endswith('.png'):
+                            self.character_paths.append(os.path.join(char_dir, img_file))
+                            self.character_labels.append(label)
+        
+        self.unique_labels = sorted(list(set(self.character_labels)))
+        self.label_to_idx = {l: i for i, l in enumerate(self.unique_labels)}
+        self.idx_to_label = {i: l for i, l in enumerate(self.unique_labels)}
+        
+        print(f"Loaded Omniglot: {len(self.character_paths)} images, {len(self.unique_labels)} characters")
+    
+    def get_transform(self, image_size: int = 28):
+        """Get transform for Omniglot images."""
+        return transforms.Compose([
+            transforms.Grayscale(num_output_channels=1),
+            transforms.Resize((image_size, image_size)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
+    
+    def get_dataloader(self, batch_size: int = 32, image_size: int = 28, shuffle: bool = True):
+        """Get dataloader for all images."""
+        transform = self.get_transform(image_size)
+        
+        class OmniglotDatasetTorch(torch.utils.data.Dataset):
+            def __init__(self, paths, labels, label_to_idx, transform):
+                self.paths = paths
+                self.labels = labels
+                self.label_to_idx = label_to_idx
+                self.transform = transform
+            
+            def __len__(self):
+                return len(self.paths)
+            
+            def __getitem__(self, idx):
+                img = Image.open(self.paths[idx]).convert('L')
+                label = self.label_to_idx[self.labels[idx]]
+                if self.transform:
+                    img = self.transform(img)
+                return img, label
+        
+        dataset = OmniglotDatasetTorch(
+            self.character_paths, self.character_labels, self.label_to_idx, transform
+        )
+        
+        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0)
+
+
+def create_omniglot_fewshot_tasks(
+    dataset: OmniglotDataset,
+    n_way: int = 5,
+    k_shot: int = 1,
+    n_query: int = 15,
+    n_tasks: int = 100,
+    image_size: int = 28,
+    seed: int = 42
+) -> List[Tuple[DataLoader, DataLoader, List[int]]]:
+    """
+    Create few-shot tasks from Omniglot.
+    
+    Returns:
+        List of (support_loader, query_loader, class_indices)
+    """
+    rng = np.random.RandomState(seed)
+    transform = dataset.get_transform(image_size)
+    
+    # Group images by character
+    char_to_paths = {}
+    for path, label in zip(dataset.character_paths, dataset.character_labels):
+        if label not in char_to_paths:
+            char_to_paths[label] = []
+        char_to_paths[label].append(path)
+    
+    tasks = []
+    for _ in range(n_tasks):
+        # Sample n_way characters
+        selected_chars = rng.choice(list(char_to_paths.keys()), n_way, replace=False)
+        
+        support_paths, support_labels = [], []
+        query_paths, query_labels = [], []
+        
+        for i, char in enumerate(selected_chars):
+            paths = char_to_paths[char]
+            rng.shuffle(paths)
+            
+            support = paths[:k_shot]
+            query = paths[k_shot:k_shot + n_query]
+            
+            support_paths.extend(support)
+            support_labels.extend([i] * len(support))
+            query_paths.extend(query)
+            query_labels.extend([i] * len(query))
+        
+        # Create datasets
+        class FewShotDataset(torch.utils.data.Dataset):
+            def __init__(self, paths, labels, transform):
+                self.paths = paths
+                self.labels = labels
+                self.transform = transform
+            
+            def __len__(self):
+                return len(self.paths)
+            
+            def __getitem__(self, idx):
+                img = Image.open(self.paths[idx]).convert('L')
+                label = self.labels[idx]
+                if self.transform:
+                    img = self.transform(img)
+                return img, label
+        
+        support_dataset = FewShotDataset(support_paths, support_labels, transform)
+        query_dataset = FewShotDataset(query_paths, query_labels, transform)
+        
+        support_loader = DataLoader(support_dataset, batch_size=len(support_paths), shuffle=True, num_workers=0)
+        query_loader = DataLoader(query_dataset, batch_size=len(query_paths), shuffle=False, num_workers=0)
+        
+        tasks.append((support_loader, query_loader, list(range(n_way))))
+    
+    return tasks
+
+
+def get_omniglot_loaders(
+    n_way: int = 5,
+    k_shot: int = 1,
+    n_query: int = 15,
+    n_tasks: int = 100,
+    image_size: int = 28,
+    seed: int = 42,
+    data_dir: str = './data'
+) -> List[Tuple[DataLoader, DataLoader, List[int]]]:
+    """Convenience function to get Omniglot few-shot tasks."""
+    dataset = OmniglotDataset(data_dir=data_dir)
+    return create_omniglot_fewshot_tasks(
+        dataset, n_way, k_shot, n_query, n_tasks, image_size, seed
+    )

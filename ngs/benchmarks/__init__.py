@@ -17,6 +17,12 @@ from .comparison import run_comparison_benchmark
 from .extended import run_vision_benchmark, run_nlp_benchmark, run_robotics_benchmark, run_extended_benchmark
 from .multimodal import run_multimodal_benchmark
 from .metagaussian import run_metagaussian_benchmark
+from .tinyshakespeare_ffn import run_tinyshakespeare_ffn_benchmark
+from .minatar_multitask import run_minatar_multitask_benchmark
+from .omniglot_fewshot import run_omniglot_fewshot_benchmark
+from .physics_informed import run_physics_informed_benchmark
+from .recursive_ngs import run_recursive_ngs_benchmark
+from experiments.cartpole_shifts import run_cartpole_shift_benchmark
 
 __all__ = [
     "run_density_benchmark",
@@ -39,4 +45,10 @@ __all__ = [
     "run_extended_benchmark",
     "run_multimodal_benchmark",
     "run_metagaussian_benchmark",
+    "run_tinyshakespeare_ffn_benchmark",
+    "run_minatar_multitask_benchmark",
+    "run_cartpole_shift_benchmark",
+    "run_omniglot_fewshot_benchmark",
+    "run_physics_informed_benchmark",
+    "run_recursive_ngs_benchmark",
 ]
