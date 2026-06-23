@@ -71,12 +71,18 @@ def compute_metrics(accuracy_matrix: np.ndarray, random_baseline: float) -> CLMe
     """Compute all CL metrics from accuracy matrix."""
     n_tasks = accuracy_matrix.shape[0]
 
-    # Final accuracies (diagonal of last column)
-    final_accuracies = accuracy_matrix[:, -1]
+    # Final accuracies: accuracy on task i after learning all tasks (column n_tasks-1)
+    final_accuracies = accuracy_matrix[:, -1].copy()
+    # Replace NaN with 0 for tasks not yet evaluated
+    final_accuracies = np.nan_to_num(final_accuracies, nan=0.0)
     avg_final = final_accuracies.mean()
 
-    # Forgetting: max over training - final
-    max_accuracies = accuracy_matrix.max(axis=1)
+    # Forgetting: max accuracy achieved during training - final accuracy
+    # Only consider columns up to and including the task's own column
+    max_accuracies = np.zeros(n_tasks)
+    for i in range(n_tasks):
+        valid_cols = accuracy_matrix[i, :i+1]
+        max_accuracies[i] = np.nanmax(valid_cols) if len(valid_cols) > 0 else 0.0
     forgetting = max_accuracies - final_accuracies
     avg_forgetting = forgetting.mean()
 
@@ -85,8 +91,9 @@ def compute_metrics(accuracy_matrix: np.ndarray, random_baseline: float) -> CLMe
     bwt_count = 0
     for i in range(n_tasks):
         for j in range(i + 1, n_tasks):
-            bwt_sum += accuracy_matrix[i, j] - accuracy_matrix[i, i]
-            bwt_count += 1
+            if not np.isnan(accuracy_matrix[i, j]) and not np.isnan(accuracy_matrix[i, i]):
+                bwt_sum += accuracy_matrix[i, j] - accuracy_matrix[i, i]
+                bwt_count += 1
     bwt = bwt_sum / bwt_count if bwt_count > 0 else 0
 
     # FWT: how well new tasks perform before explicit training
@@ -94,12 +101,13 @@ def compute_metrics(accuracy_matrix: np.ndarray, random_baseline: float) -> CLMe
     fwt_count = 0
     for i in range(n_tasks):
         for j in range(i):
-            fwt_sum += accuracy_matrix[i, j] - random_baseline
-            fwt_count += 1
+            if not np.isnan(accuracy_matrix[i, j]):
+                fwt_sum += accuracy_matrix[i, j] - random_baseline
+                fwt_count += 1
     fwt = fwt_sum / fwt_count if fwt_count > 0 else 0
 
     # LA: average accuracy on each task right after learning it
-    la = accuracy_matrix.diagonal().mean()
+    la = np.nanmean(accuracy_matrix.diagonal())
 
     return CLMetrics(
         accuracy_matrix=accuracy_matrix,
@@ -195,8 +203,9 @@ def print_results(metrics: CLMetrics, experiment_name: str = "Experiment"):
     for i in range(metrics.accuracy_matrix.shape[0]):
         row = []
         for j in range(metrics.accuracy_matrix.shape[1]):
-            if j <= i:
-                row.append(f"{metrics.accuracy_matrix[i, j]:.4f}")
+            if j >= i:
+                val = metrics.accuracy_matrix[i, j]
+                row.append(f"{val:.4f}" if not np.isnan(val) else "NaN")
             else:
                 row.append("----")
         print(f"  Task {i}: {row}")

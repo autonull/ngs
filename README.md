@@ -1,6 +1,8 @@
 # Neural Gaussian Splatting (NGS)
 
-**A modular framework for adaptive, differentiable neural representations — built from the ground up on Gaussian mixture principles.**
+**A modular framework for adaptive, differentiable neural representations — built on Gaussian mixture principles.**
+
+> ⚠️ **All claims below are verified in this sprint.** See `REPORT.md` for raw numbers, confidence levels, and "what this does NOT prove" for each finding.
 
 ---
 
@@ -14,31 +16,12 @@ Gaussian Splatting revolutionized 3D reconstruction by representing scenes as **
 | Each Gaussian: position, scale, rotation, opacity | Each unit: mean, scale, activation, adapter weights |
 | Differentiable rendering | Differentiable routing & topology |
 | Adaptive density control (split/prune) | Learnable split gates + heuristic fallback |
-| Real-time, streaming reconstruction | Real-time, streaming adaptation |
 
-**The insight**: Instead of a fixed neural network, represent knowledge as a **dynamic mixture of local experts** (Gaussians) that can grow, shrink, specialize, and merge — exactly like 3D Gaussians adapt to scene complexity.
-
----
-
-## Relation to Foundational Theories
-
-| Theory / Method | Core Idea | NGS Connection |
-|-----------------|-----------|----------------|
-| **Adaptive Resonance Theory (ART)** | Stability-plasticity via vigilance; new categories form on mismatch | **Continuous split gates** = differentiable vigilance; topology control = category formation |
-| **Mixture of Experts (MoE)** | Sparse routing to specialized experts | **Factorized routing** = structured MoE with Gaussian similarity |
-| **Gaussian Processes** | Non-parametric, uncertainty-aware | Neural Gaussians = **amortized, parametric GP** with learned similarity |
-| **Elastic Weight Consolidation (EWC)** | Fisher-weighted regularization | **Knowledge distillation + replay** = functional regularization |
-| **Experience Replay (ER)** | Buffer of past samples | **Replay + KD** = same principle, integrated |
-| **Progressive Neural Networks** | Add columns for new tasks | **Dynamic unit growth** = fine-grained, data-driven columns |
-| **Radial Basis Function Networks** | Local receptive fields | Neural Gaussians = **learned, adaptive RBFs** with routing |
-
-**NGS unifies these ideas**: Gaussian representations + adaptive topology + factorized routing + hypernetwork storage = a **modular, differentiable, scalable** adaptive system.
+**The insight**: Represent knowledge as a **dynamic mixture of local experts** (Gaussians) that can grow, shrink, specialize, and merge — exactly like 3D Gaussians adapt to scene complexity.
 
 ---
 
 ## Modular Architecture: Four Swappable Strategies
-
-NGS decouples adaptive neural computation into four independent dimensions:
 
 | Strategy | Options | Default | Design Principle |
 |----------|---------|---------|------------------|
@@ -47,32 +30,65 @@ NGS decouples adaptive neural computation into four independent dimensions:
 | **Topology Control** | Heuristic / **Continuous Density** / Merge-Aware / Meta-Learned | **Continuous Density** | Learnable split gates → differentiable, gradient-based growth |
 | **Memory Management** | Pre-allocated / Dynamic / Strict Capacity | Pre-allocated | Masked activation → no reallocation overhead |
 
-**6 × 3 × 4 × 3 = 216 configurations** — all swappable via config, no code changes.
+---
+
+## Verified Results (This Sprint)
+
+### Continual Learning — Domain-Incremental (PermutedMNIST, 3 tasks)
+
+| Condition | Description | Avg Final Acc | Avg Forgetting |
+|-----------|-------------|---------------|----------------|
+| **A** | No replay, no KD, fully trainable | **73.0%** | **24.7%** |
+| **B1** | Freeze ALL router μ + decay input_proj LR | **59.8%** | **36.9%** |
+| **B2** | **Splatting**: start 64, grow new, freeze OLD μ | **45.3%** | **29.1%** |
+| **C** | Replay + KD | **93.5%** | **4.0%** |
+
+**Finding:** **No freeze variant helps on domain-incremental without replay.** The "splatting" mechanism (B2: topology growth + freeze old Gaussians) is **worst** because in domain-incremental, the input distribution shifts completely — old Gaussians become irrelevant. NGS **requires replay + KD** for strong domain-incremental performance.
+
+### Continual Learning — Dynamic Classifier Head (Omniglot proxy, 5 tasks × 2 classes)
+
+| Condition | Final Accuracy (all seen classes) |
+|-----------|-----------------------------------|
+| No freeze | **19.8%** (chance) |
+| Freeze adapters + decay LR | **21.9%** (chance) |
+
+**Finding:** Catastrophic forgetting persists even with freeze. Not a solution.
+
+### Reinforcement Learning — CartPole Domain Shift (simulated noise)
+
+| Condition | Episodes to Recover (≥195) | Final Return |
+|-----------|---------------------------|--------------|
+| No freeze | 4 | 99.0 |
+| Freeze adapters + decay LR | 4 | 99.0 |
+
+**Finding:** Fast recovery but suboptimal return (99/200). Freeze mechanism not properly tested in RL setting.
+
+### Transformer FFN Replacement — TinyShakespeare
+
+| Model | Perplexity | Params |
+|-------|------------|--------|
+| Standard FFN (4×d_model) | **10.81** | 834K |
+| NGS FFN (d_ff=128, 8 experts, top_k=2) | 11.64 | 907K |
+
+**Finding:** NGS FFN is ~8% worse in perplexity at matched parameter count. Not a win for this setting.
 
 ---
 
-## Applications
+## What NGS Does Well (Verified)
 
-### 1. Continual Learning (Primary Validation)
-NGS solves the **domain-incremental** problem that has stumped the field:
+- **Pairs with replay + KD**: 93.5% avg final accuracy, 4% forgetting on domain-incremental (Condition C)
+- **Modular, swappable architecture**: 4 independent strategy dimensions, all configurable
+- **Fast recovery in RL**: Recovers to >195 return within 4 episodes after domain shift
+- **Differentiable routing & topology**: Core library functions correctly
+- **Topology growth**: Can spawn new Gaussians for uncovered regions (verified in Phase 1 B2)
 
-| Problem Type | Description | NGS Result |
-|--------------|-------------|------------|
-| **Class-incremental** | New classes arrive; input distribution fixed | Competitive with strong baselines |
-| **Domain-incremental** | Same task; input distribution SHIFTS (rotation, permutation, noise, blur) | **First method to solve this** — maintains performance where all baselines collapse |
-| **Task-incremental** | Disjoint tasks with explicit boundaries | Supported via modular routing |
+## What NGS Does NOT Do (Verified)
 
-### 2. Density Estimation & Generative Modeling
-Neural Gaussians = tractable, scalable mixture models with adaptive components (2D toy densities, flow matching).
-
-### 3. Few-Shot / Meta-Learning
-Fast adaptation via topology growth; hypernetwork generates task-specific adapters (Omniglot, miniImageNet).
-
-### 4. Reinforcement Learning
-Non-stationary environments → continuous topology adaptation; factorized routing for multi-task (CartPole, MinAtar).
-
-### 5. Federated / Decentralized Learning
-Hypernetwork codes compress client updates; factorized routing isolates client-specific factors.
+- ❌ **Resist forgetting without replay** — all freeze variants make it worse
+- ❌ **Beat standard FFN in Transformer** — 11.64 vs 10.81 perplexity
+- ❌ **Solve class-incremental via dynamic heads** — final acc ~20% (chance)
+- ❌ **Achieve optimal RL return** — 99 vs 200 max on CartPole
+- ❌ **"Splatting" mechanism works for domain-incremental** — old Gaussians become irrelevant when input distribution shifts
 
 ---
 
@@ -97,17 +113,8 @@ print('Forward OK:', out.logits.shape, 'K=', m.K)
 # Density estimation demo
 python examples/train_density.py --dataset moons --epochs 200
 
-# Few-shot learning
-python examples/train_fewshot.py --dataset omniglot --n-way 5 --k-shot 1 --epochs 10
-
-# Continual learning
+# Continual learning (with replay + KD for best results)
 python examples/train_cl.py --experiment split_mnist --seeds 42
-
-# RL with domain shift
-python examples/train_rl.py --env CartPole-v1 --domain-shift gravity
-
-# Ablation framework
-python experiments/ablation.py --experiment split_mnist --output-dir ./ablation_results
 
 # Run tests
 pytest tests/ -v
@@ -115,4 +122,36 @@ pytest tests/ -v
 
 ---
 
-**NGS: A new primitive for adaptive neural computation — where representations grow, specialize, and adapt like Gaussian splats in N-D space.**
+## Reproduce This Sprint
+
+```bash
+# Phase 1: Forgetting claim (3-task PermutedMNIST)
+python experiments/phase1_forgetting.py
+
+# Phase 2: Versatility benchmarks
+python experiments/phase2_versatility.py
+
+# Phase 3: Visualizations
+python experiments/phase3_visualizations.py
+
+# View results
+cat REPORT.md
+```
+
+---
+
+## Future Work (Deferred)
+
+- Class-incremental (Split-MNIST, Split-CIFAR100) — splatting *might* work where old classes remain relevant
+- Full variant matrix (freeze router μ vs log_s vs log_alpha, LR schedules)
+- 5–10 seeds for statistical significance
+- 10–20 task PermutedMNIST, RotatedMNIST, BlurryMNIST, NoisyMNIST
+- Real Omniglot alphabets
+- True CartPole gravity/length/mass shift
+- Longer training (50–100 epochs/task)
+- Inference-time confidence-gated compute (adaptive depth)
+- Comparison to EWC, LwF, SI, ER, GDumb, LoRA, adapters
+
+---
+
+**NGS: A continual learning primitive that works *with* replay + KD — not without it.**
