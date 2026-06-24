@@ -651,6 +651,267 @@ class MetaLearnedManager(nn.Module, BaseTopologyManager):
         return num_pruned, num_split, num_spawned
 
 
+# ─────────────────────── Autopoietic Manager ───────────────────────
+
+class AutopoieticManager(BaseTopologyManager):
+    """
+    Autopoietic (self-creating) topology management.
+    The network grows its own topology in real-time based on routing entropy.
+    High entropy → split Gaussians (uncertainty → exploration).
+    Low entropy + high overlap → merge Gaussians (redundancy → compression).
+    
+    This is true self-organization: no external controller, the network's
+    own uncertainty drives its growth.
+    """
+    
+    def __init__(self, config: NGSConfig):
+        super().__init__(config)
+        self.tau_split = config.extra.get('entropy_split_threshold', 1.5)
+        self.tau_merge = config.extra.get('overlap_merge_threshold', 0.9)
+        self.max_depth = config.extra.get('max_tree_depth', 5)
+        self.split_scale = 0.5
+        self.noise_std = 0.01
+        self.prune_threshold = config.prune_threshold
+        self.spawn_threshold = -5.0
+        
+        # Track Gaussian tree structure
+        self.tree_depth = None
+        self.tree_parent = None
+        self.tree_children = None
+    
+    def _compute_routing_entropy(self, weights: torch.Tensor) -> torch.Tensor:
+        """Compute routing entropy H(x) = -Σ w_i log w_i per sample."""
+        eps = 1e-8
+        entropy = -(weights * (weights + eps).log()).sum(dim=-1)  # [N]
+        return entropy.mean()  # scalar
+    
+    def _compute_overlap(self, mu: torch.Tensor, log_s: torch.Tensor) -> torch.Tensor:
+        """Compute pairwise overlap between active Gaussians."""
+        K = mu.shape[0]
+        if K < 2:
+            return torch.zeros(K, K, device=mu.device)
+        
+        s = torch.exp(log_s)  # [K, d]
+        
+        # Represent as [mu, s] and compute cosine similarity
+        repr = torch.cat([mu, s], dim=-1)  # [K, 2d]
+        repr_norm = F.normalize(repr, dim=-1, eps=1e-8)
+        overlap = repr_norm @ repr_norm.T  # [K, K]
+        
+        return overlap
+    
+    def _split_high_entropy(self, model, routing, entropy: float):
+        """Split Gaussians in high-entropy regions."""
+        router = model.router
+        mu, log_s, log_alpha = _flat_access(router)
+        if mu is None:
+            return 0
+        
+        active_idx = router.active_mask.nonzero(as_tuple=True)[0]
+        if len(active_idx) == 0:
+            return 0
+        
+        # Find Gaussians with highest contribution to entropy
+        weights = routing.weights  # [N, K]
+        if weights.dim() == 2:
+            # Per-Gaussian entropy contribution
+            gauss_entropy = -(weights * (weights + 1e-8).log()).sum(dim=0)  # [K]
+            gauss_entropy = gauss_entropy[active_idx]
+            
+            # Split top contributors
+            n_split = min(4, len(active_idx) // 2)
+            n_split = max(n_split, 1)
+            _, top_idx = torch.topk(gauss_entropy, n_split)
+            split_idx = active_idx[top_idx]
+            
+            free_slots = (~router.active_mask).nonzero(as_tuple=True)[0]
+            n_available = len(free_slots)
+            n_split = min(len(split_idx), n_available)
+            
+            if n_split > 0:
+                split_idx = split_idx[:n_split]
+                new_idx = free_slots[:n_split]
+                
+                # Copy and perturb mean
+                mu.data[new_idx] = mu[split_idx].clone()
+                noise = torch.randn_like(mu[split_idx]) * self.noise_std
+                mu.data[new_idx] += noise
+                
+                # Scale down covariances
+                half_scale = torch.log(torch.tensor(self.split_scale, device=mu.device))
+                log_s.data[new_idx] = log_s[split_idx].clone() + half_scale
+                log_s.data[split_idx] += half_scale
+                
+                # Copy log_alpha
+                log_alpha.data[new_idx] = log_alpha[split_idx].clone()
+                
+                # Track tree structure
+                if self.tree_depth is None:
+                    self.tree_depth = torch.zeros_like(router.active_mask, dtype=torch.long)
+                    self.tree_parent = torch.full_like(router.active_mask, -1, dtype=torch.long)
+                    self.tree_children = [[] for _ in range(router.max_k)]
+                
+                self.tree_depth[new_idx] = self.tree_depth[split_idx] + 1
+                self.tree_parent[new_idx] = split_idx
+                for i, (p, c) in enumerate(zip(split_idx, new_idx)):
+                    self.tree_children[p.item()].append(c.item())
+                
+                # Reset EMA
+                router.grad_mu_ema[new_idx] = 0
+                router.grad_mu_ema[split_idx] = 0
+                
+                # Mark active
+                router.active_mask[new_idx] = True
+                return n_split
+        
+        return 0
+    
+    def _merge_redundant(self, model, routing) -> int:
+        """Merge redundant Gaussians with high overlap."""
+        router = model.router
+        mu, log_s, log_alpha = _flat_access(router)
+        if mu is None:
+            return 0
+        
+        active_idx = router.active_mask.nonzero(as_tuple=True)[0]
+        if len(active_idx) < 2:
+            return 0
+        
+        mu_active = mu[active_idx]
+        log_s_active = log_s[active_idx]
+        
+        overlap = self._compute_overlap(mu_active, log_s_active)
+        
+        # Find merge candidates (upper triangle, excluding diagonal)
+        triu_mask = torch.triu(torch.ones_like(overlap), diagonal=1).bool()
+        merge_candidates = (overlap > self.tau_merge) & triu_mask
+        
+        if not merge_candidates.any():
+            return 0
+        
+        # Greedy merge: highest overlap first
+        merge_pairs = []
+        for i in range(len(active_idx)):
+            for j in range(i + 1, len(active_idx)):
+                if merge_candidates[i, j]:
+                    merge_pairs.append((overlap[i, j].item(), i, j))
+        
+        merge_pairs.sort(reverse=True)
+        merged = set()
+        num_merged = 0
+        
+        for _, i, j in merge_pairs:
+            if i in merged or j in merged:
+                continue
+            if num_merged >= 2:
+                break
+            
+            idx_i = active_idx[i]
+            idx_j = active_idx[j]
+            
+            # Merge j into i: average parameters
+            mu.data[idx_i] = 0.5 * (mu[idx_i] + mu[idx_j])
+            log_s.data[idx_i] = torch.log(
+                torch.sqrt(torch.exp(log_s[idx_i]) * torch.exp(log_s[idx_j]) + 1e-8)
+            )
+            
+            # Deactivate j
+            router.active_mask[idx_j] = False
+            router.grad_mu_ema[idx_j] = 0
+            
+            # Update tree
+            if self.tree_parent is not None:
+                self.tree_parent[idx_j] = -1
+            
+            merged.add(i)
+            merged.add(j)
+            num_merged += 1
+        
+        return num_merged
+    
+    def step(self, model, z_samples: torch.Tensor) -> Tuple[int, int, int]:
+        """Main autopoietic step: compute entropy, split/merge, spawn."""
+        router = model.router
+        if not hasattr(router, 'active_mask'):
+            return 0, 0, 0
+        
+        # Get routing weights
+        routing = model.router(z_samples)
+        weights = routing.weights  # [N, K]
+        
+        # Compute entropy
+        entropy = self._compute_routing_entropy(weights)
+        
+        num_split = 0
+        num_merged = 0
+        
+        # Split if high entropy
+        if entropy > self.tau_split:
+            num_split = self._split_high_entropy(model, routing, entropy.item())
+        
+        # Merge if low entropy (confident + redundant)
+        elif entropy < self.tau_merge:
+            num_merged = self._merge_redundant(model, routing)
+        
+        # Spawn in uncovered regions
+        num_spawned = 0
+        if z_samples is not None:
+            free_slots = (~router.active_mask).nonzero(as_tuple=True)[0]
+            if len(free_slots) > 0:
+                active_idx = router.active_mask.nonzero(as_tuple=True)[0]
+                if len(active_idx) > 0:
+                    mu, log_s, log_alpha = _flat_access(router)
+                    if mu is not None:
+                        mu_active = mu[active_idx]
+                        log_s_active = log_s[active_idx]
+                        s_sq = torch.exp(2 * log_s_active) + 1e-5
+                        
+                        diff = z_samples.unsqueeze(1) - mu_active.unsqueeze(0)
+                        mahalanobis_sq = ((diff ** 2) / s_sq).sum(dim=-1)
+                        log_w = log_alpha[active_idx] - 0.5 * mahalanobis_sq
+                        max_log_w, _ = log_w.max(dim=-1)
+                        
+                        uncovered_mask = max_log_w < self.spawn_threshold
+                        if uncovered_mask.any():
+                            uncovered_z = z_samples[uncovered_mask]
+                            n_spawn = min(len(uncovered_z), len(free_slots), 5)
+                            if n_spawn > 0:
+                                spawn_idx = free_slots[:n_spawn]
+                                mu.data[spawn_idx] = uncovered_z[:n_spawn]
+                                log_s.data[spawn_idx].fill_(0.0)
+                                log_alpha.data[spawn_idx].fill_(0.0)
+                                router.grad_mu_ema[spawn_idx] = 0
+                                router.active_mask[spawn_idx] = True
+                                
+                                if self.tree_depth is not None:
+                                    self.tree_depth[spawn_idx] = 0
+                                    self.tree_parent[spawn_idx] = -1
+                                
+                                num_spawned = n_spawn
+        
+        return num_merged, num_split, num_spawned
+    
+    def get_tree_stats(self) -> Dict[str, Any]:
+        """Get Gaussian tree statistics."""
+        if self.tree_depth is None:
+            return {}
+        
+        active_depths = self.tree_depth[self.tree_depth >= 0]
+        if len(active_depths) == 0:
+            return {}
+        
+        return {
+            'max_depth': active_depths.max().item(),
+            'mean_depth': active_depths.float().mean().item(),
+            'branching_factor': (self.tree_parent >= 0).sum().item() / max(1, (self.tree_parent == -1).sum().item()),
+        }
+    
+    def adapt_topology(self, model, **kwargs) -> Tuple[int, int, int]:
+        """Interface required by BaseTopologyManager."""
+        z_samples = kwargs.get('z_samples', None)
+        return self.step(model, z_samples)
+
+
 # ─────────────────────────── Builder ───────────────────────────
 
 def build_topology_manager(config: NGSConfig):
@@ -665,6 +926,8 @@ def build_topology_manager(config: NGSConfig):
         return MergeAwareManager(config)
     elif topology.name == "META_LEARNED":
         return MetaLearnedManager(config)
+    elif topology.name == "AUTOPOIETIC":
+        return AutopoieticManager(config)
     else:
         raise ValueError(f"Unknown topology control: {topology}")
 
@@ -674,5 +937,6 @@ __all__ = [
     "ContinuousDensityManager",
     "MergeAwareManager",
     "MetaLearnedManager",
+    "AutopoieticManager",
     "build_topology_manager",
 ]

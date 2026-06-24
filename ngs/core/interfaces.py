@@ -29,6 +29,7 @@ class TopologyControl(Enum):
     CONTINUOUS_DENSITY = "continuous_density"
     MERGE_AWARE = "merge_aware"
     META_LEARNED = "meta_learned"
+    AUTOPOIETIC = "autopoietic"
 
 
 class MemoryManagement(Enum):

@@ -88,6 +88,14 @@ class HypernetworkStore(BaseParameterStore):
             nn.Linear(config.hypernetwork_hidden_dim, out_size),
         )
 
+    def inner_loop_params(self):
+        """Return params that should be adapted in MAML inner loop (router + codes)."""
+        params = []
+        for name, param in self.named_parameters():
+            if 'router' in name or 'code' in name:
+                params.append(param)
+        return params
+
     def forward(self, active_indices: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         """Apply hypernetwork-generated transformations.
         
@@ -229,10 +237,37 @@ def build_parameter_store(config: NGSConfig) -> BaseParameterStore:
         raise ValueError(f"Unknown parameter storage: {storage}")
 
 
+class MetaGaussianPrior(nn.Module):
+    """Meta-learned initial Gaussian distribution per domain.
+    
+    Instead of meta-learning dense weights, we meta-learn the initial spatial 
+    distribution (means mu_0 and covariances log_sigma_0) of Gaussians for a domain.
+    The topology itself is primed for fast adaptation.
+    """
+    
+    def __init__(self, n_domains: int, max_k: int, d_latent: int):
+        super().__init__()
+        self.n_domains = n_domains
+        self.max_k = max_k
+        self.d_latent = d_latent
+        
+        self.mu_0 = nn.Parameter(torch.randn(n_domains, max_k, d_latent) * 0.1)
+        self.log_sigma_0 = nn.Parameter(torch.zeros(n_domains, max_k, d_latent))
+    
+    def forward(self, domain_id: int):
+        """Return initial mu and log_sigma for a domain."""
+        return self.mu_0[domain_id], self.log_sigma_0[domain_id]
+    
+    def get_all_priors(self):
+        """Return all domain priors."""
+        return self.mu_0, self.log_sigma_0
+
+
 __all__ = [
     "DirectAdapterStore",
     "HypernetworkStore",
     "LoRAStore",
+    "MetaGaussianPrior",
     "build_parameter_store",
     "BaseParameterStore",
 ]
