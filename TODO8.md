@@ -43,6 +43,15 @@
 
 ---
 
+Let's try both:
+1. MAML requires unrolling the computation graph. This is why you need the higher library, and it is exactly why your hypernetwork graph was breaking in the first place.
+2. EqProp does not unroll the graph. It just lets the network physically settle into an energy minimum.
+3. Therefore, EqProp natively supports hypernetworks without breaking the graph.
+By swapping MAML for EqProp+SN in TODO8.md, you don't just fix the meta-learning bug; you simultaneously execute the #1 goal of RESEARCH.md: The End of Backpropagation. You kill two birds with one stone.
+
+
+---
+
 ### Paper 4: **Autopoietic Splatting (Self-Referential Topology)**
 > *NGS grows its own topology in real-time. Routing entropy → split; routing confidence + redundancy → merge. The network builds a fractal Gaussian tree.*
 
