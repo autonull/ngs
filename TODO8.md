@@ -1,11 +1,11 @@
-# NGS Research Plan: TODO8 — Barbell Strategy (High Ambition)
+# NGS Research Plan: TODO8 — High Ambition
 
 **Date:** 2026-06-24  
 **Status:** Papers 3 (ICLR) & 5 (ICML) **SECURED** — Floor locked. Swinging for ceiling.
 
 ---
 
-## 🎯 THE BARBELL STRATEGY
+## 🎯 THE STRATEGY
 
 | Track | Goal | Time | GPU | Risk |
 |-------|------|------|-----|------|
