@@ -12,7 +12,7 @@ from typing import Optional, Dict, Any, List, Tuple
 
 from ngs.models.ngs import NGSModel
 from ngs.core.interfaces import NGSConfig, RoutingOutput
-from ngs.optim.eqprop_wrapper import SpectralConstraint
+from ngs.optim.eqprop_wrapper import SpectralConstraint, SettlingSpectralPenalty
 
 
 class EqNGSLayer(nn.Module):
@@ -27,6 +27,12 @@ class EqNGSLayer(nn.Module):
     3. LOCAL UPDATE: Δθ ∝ (θ_nudged - θ_free) for Gaussian params
     
     Memory: O(1) activation graph — only final equilibrium states stored.
+    
+    Spectral constraint modes (for ablation):
+    - 'none': No spectral constraint
+    - 'post_update': Hard constraint after parameter updates (default)
+    - 'during_settling': Soft penalty added to energy during settling
+    - 'both': Both post-update enforcement and settling penalty
     """
     
     def __init__(
@@ -39,6 +45,8 @@ class EqNGSLayer(nn.Module):
         ep_settle_lr: float = 0.2,
         ep_momentum: float = 0.9,
         spectral_gamma: float = 0.95,
+        spectral_mode: str = 'post_update',  # 'none', 'post_update', 'during_settling', 'both'
+        settling_penalty_lambda: float = 1.0,
     ):
         super().__init__()
         self.d_in = d_in
@@ -49,6 +57,8 @@ class EqNGSLayer(nn.Module):
         self.ep_settle_lr = ep_settle_lr
         self.ep_momentum = ep_momentum
         self.spectral_gamma = spectral_gamma
+        self.spectral_mode = spectral_mode
+        self.settling_penalty_lambda = settling_penalty_lambda
         
         # Base NGS model
         self.ngs = NGSModel(d_in, d_out, config)
@@ -71,6 +81,7 @@ class EqNGSLayer(nn.Module):
         
         # Spectral constraint for router projections (contraction guarantee)
         self.spectral_constraints = []
+        self.settling_spectral_penalty = None
         self._register_spectral_constraints()
         
         # Track if we're in EP training mode
@@ -82,16 +93,58 @@ class EqNGSLayer(nn.Module):
         return [getattr(self, name) for name in self.ep_buffer_names]
     
     def _register_spectral_constraints(self):
-        """Register SpectralConstraint on router projection layers."""
-        for name, param in self.ngs.named_parameters():
-            if 'router' in name and 'mu' in name and param.ndim >= 2:
-                constraint = SpectralConstraint(gamma=self.spectral_gamma, timing='post_update')
-                self.spectral_constraints.append((name, param, constraint))
+        """Register SpectralConstraint on router projection layers based on mode."""
+        if self.spectral_mode in ('post_update', 'both'):
+            for name, param in self.ngs.named_parameters():
+                if 'router' in name and 'mu' in name and param.ndim >= 2:
+                    constraint = SpectralConstraint(
+                        gamma=self.spectral_gamma, 
+                        timing='post_update'
+                    )
+                    self.spectral_constraints.append((name, param, constraint))
+        
+        if self.spectral_mode in ('during_settling', 'both'):
+            self.settling_spectral_penalty = SettlingSpectralPenalty(
+                gamma=self.spectral_gamma,
+                lambda_penalty=self.settling_penalty_lambda,
+            )
     
     def enforce_spectral_constraints(self):
         """Enforce spectral norm constraints post-update."""
         for name, param, constraint in self.spectral_constraints:
             constraint.enforce(param, {}, {})
+    
+    def _compute_settling_spectral_penalty(self) -> torch.Tensor:
+        """Compute spectral penalty for settling energy."""
+        if self.settling_spectral_penalty is None:
+            return torch.tensor(0.0, device=next(self.parameters()).device)
+        
+        penalty = torch.tensor(0.0, device=next(self.parameters()).device)
+        for name, param in self.ngs.named_parameters():
+            if 'router' in name and 'mu' in name and param.ndim >= 2:
+                # Estimate spectral norm via power iteration
+                W = param.data
+                if W.ndim > 2:
+                    W = W.view(W.shape[0], -1)
+                
+                h, w = W.shape
+                u = torch.randn(h, device=W.device, dtype=W.dtype)
+                u = u / (u.norm() + 1e-6)
+                v = torch.randn(w, device=W.device, dtype=W.dtype)
+                v = v / (v.norm() + 1e-6)
+                
+                for _ in range(3):
+                    v = W.T @ u
+                    v = v / (v.norm() + 1e-6)
+                    u = W @ v
+                    u = u / (u.norm() + 1e-6)
+                
+                sigma = (u @ W @ v).abs()
+                if sigma > self.spectral_gamma:
+                    diff = sigma - self.spectral_gamma
+                    penalty = penalty + self.settling_penalty_lambda * (diff ** 2)
+        
+        return penalty
     
     def forward(self, x: torch.Tensor) -> Any:
         """Standard forward (uses base NGS forward)."""
@@ -202,6 +255,12 @@ class EqNGSLayer(nn.Module):
                 
             # Compute energy (no nudge in free phase)
             energy = self._compute_routing_energy(z, router_out, target=None, beta=0.0)
+            
+            # Add settling spectral penalty if enabled
+            if self.spectral_mode in ('during_settling', 'both'):
+                penalty = self._compute_settling_spectral_penalty()
+                energy = energy + penalty
+            
             energy = energy.to(z.device)
             
             # Gradient w.r.t EP parameters
@@ -243,6 +302,11 @@ class EqNGSLayer(nn.Module):
             energy = self._compute_routing_energy(
                 z, router_out, target=target, beta=self.ep_beta
             )
+            
+            # Add settling spectral penalty if enabled
+            if self.spectral_mode in ('during_settling', 'both'):
+                penalty = self._compute_settling_spectral_penalty()
+                energy = energy + penalty
             
             # Gradient w.r.t EP parameters
             grads = torch.autograd.grad(
@@ -357,6 +421,8 @@ def create_eqngs(
     ep_settle_lr: float = 0.2,
     ep_momentum: float = 0.9,
     spectral_gamma: float = 0.95,
+    spectral_mode: str = 'post_update',  # 'none', 'post_update', 'during_settling', 'both'
+    settling_penalty_lambda: float = 1.0,
 ) -> EqNGSLayer:
     """Factory function to create EqNGS layer."""
     return EqNGSLayer(
@@ -368,4 +434,6 @@ def create_eqngs(
         ep_settle_lr=ep_settle_lr,
         ep_momentum=ep_momentum,
         spectral_gamma=spectral_gamma,
+        spectral_mode=spectral_mode,
+        settling_penalty_lambda=settling_penalty_lambda,
     )

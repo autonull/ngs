@@ -6,7 +6,7 @@ import sys
 sys.path.insert(0, '/home/me/ngs/bioplausible/mep')
 
 # Core EP optimizer with smep/smep_fast/muon_backprop presets
-from mep.optimizers import EPOptimizer, smep, smep_fast, muon_backprop, EWCState
+from mep.optimizers import EPOptimizer, smep, smep_fast, muon_backprop, EWCState, EWCRegularizer
 
 # Spectral constraint for contraction guarantee
 from mep.optimizers.strategies import SpectralConstraint, SettlingSpectralPenalty
@@ -19,6 +19,7 @@ __all__ = [
     "SpectralConstraint",
     "SettlingSpectralPenalty",
     "EWCState",
+    "EWCRegularizer",
 ]
 
 
@@ -52,3 +53,13 @@ def add_spectral_constraint(model, gamma=0.95, timing='post_update'):
             constraint = SpectralConstraint(gamma=gamma, timing=timing)
             constraints.append((name, param, constraint))
     return constraints
+
+
+def add_settling_spectral_penalty(model, gamma=0.95, lambda_penalty=1.0):
+    """Add SettlingSpectralPenalty for soft spectral constraint during settling."""
+    return SettlingSpectralPenalty(gamma=gamma, lambda_penalty=lambda_penalty)
+
+
+def create_ewc_regularizer(model, ewc_lambda=100.0):
+    """Create EWC regularizer for continual learning."""
+    return EWCRegularizer(model, ewc_lambda=ewc_lambda)
