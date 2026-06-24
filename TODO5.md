@@ -48,7 +48,7 @@ Priority order:
 
 | # | Experiment | Why It Teaches Us | Target Result | Est. Compute |
 |---|------------|-------------------|---------------|--------------|
-| **2A** | **TinyShakespeare FFN swap** (matched capacity: d_ff=512 vs NGS d_ff=128, 32 experts, 10k iters) | Parameter efficiency in Transformers — can NGS replace dense FFN? | Match 10.81 perplexity with ≤30% params | 2 hr |
+| **2A** | **TinyShakespeare FFN swap** (matched capacity: d_ff=512 vs NGS d_ff=128, 32 experts, 10k iters) | Parameter efficiency in Transformers — can NGS replace dense FFN? | Match 10.81 perplexity with less params | 2 hr |
 | **2B** | **MinAtar 5-game multi-task** (single policy, factorized subspaces per game) | Capacity sharing in RL — one policy, multi-task | Single policy >5 independent PPO baselines | 1.5 hr |
 | **2C** | **Real CartPole domain shifts** (gravity/length/mass via env wrapper) | True non-stationary RL — not simulated noise | <10 eps recovery, final return >195 | 45 min |
 | **2D** | **Real Omniglot few-shot** (5-way 1-shot, hypernetwork generates adapters) | Dynamic head + meta-learning | >95% accuracy, open-set AUROC >0.9 | 1 hr |
@@ -125,8 +125,8 @@ Day 14: Integration + paper writing
 |------------------|-------------|----------|
 | **1A Multimodal** | >5% gain over monolithic, clear subspace separation | FactorizedRouter not the differentiator we thought |
 | **1B Class-Incremental** | Forgetting <10% on Split-CIFAR100 | Splatting only works in very specific regimes |
-| **2A TinyShakespeare** | Match perplexity at ≤50% params | NGS FFN not competitive for Transformers |
-| **1D Meta-Gaussians** | 3× faster adaptation on shifts | Meta-overhead not worth it |
+| **2A TinyShakespeare** | Match perplexity with less params | NGS FFN not competitive for Transformers |
+| **1D Meta-Gaussians** | 2× faster adaptation on shifts | Meta-overhead not worth it |
 
 ---
 
