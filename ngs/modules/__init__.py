@@ -54,6 +54,11 @@ from ngs.modules.advanced import (
     build_cross_modal_fusion,
     build_meta_meta_learner,
 )
+from ngs.modules.dynamic_head import (
+    DynamicHead,
+    build_dynamic_head,
+    default_dynamic_config,
+)
 
 __all__ = [
     "NGSLayer",
@@ -96,4 +101,7 @@ __all__ = [
     "build_symbolic_extractor",
     "build_cross_modal_fusion",
     "build_meta_meta_learner",
+    "DynamicHead",
+    "build_dynamic_head",
+    "default_dynamic_config",
 ]
