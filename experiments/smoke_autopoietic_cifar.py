@@ -91,3 +91,17 @@ for epoch in range(2):
     print(f"  Epoch {epoch+1}: loss={epoch_loss/10:.4f}, active_K={active_k}, tree={tree_stats}")
 
 print("\n✅ Autopoietic CIFAR smoke test PASSED")
+
+# Save results
+import json
+import os
+results_dir = os.path.join(os.path.dirname(__file__), '..', 'results', 'tier0')
+os.makedirs(results_dir, exist_ok=True)
+results = {
+    'active_k': active_k,
+    'tree_stats': tree_stats,
+}
+output_path = os.path.join(results_dir, 'smoke_autopoietic_cifar.json')
+with open(output_path, 'w') as f:
+    json.dump(results, f, indent=2)
+print(f"Results saved to {output_path}")

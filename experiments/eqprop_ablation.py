@@ -151,6 +151,10 @@ for name, epoch_results in results.items():
     print(f"{name:<25} {accs[0]:>10} {accs[1]:>10}")
 
 import json
-with open('eqprop_ablation_results.json', 'w') as f:
+import os
+results_dir = os.path.join(os.path.dirname(__file__), '..', 'results', 'tier1')
+os.makedirs(results_dir, exist_ok=True)
+output_path = os.path.join(results_dir, 'eqprop_ablation_results.json')
+with open(output_path, 'w') as f:
     json.dump(results, f, indent=2)
-print("\nResults saved to eqprop_ablation_results.json")
+print(f"\nResults saved to {output_path}")

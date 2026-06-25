@@ -99,3 +99,25 @@ print("✅ PASS" if acc > 0.97 else "❌ NEEDS MORE TRAINING")
 # Memory check
 print(f"\nGPU Memory: {torch.cuda.max_memory_allocated()/1e9:.2f} GB allocated")
 print(f"  (Should be constant regardless of depth — no activation graph stored)")
+
+# Save results
+import json
+import os
+results_dir = os.path.join(os.path.dirname(__file__), '..', 'results', 'tier0')
+os.makedirs(results_dir, exist_ok=True)
+results = {
+    'test_acc': acc,
+    'epochs': 1,
+    'latent_dim': 64,
+    'k_init': 32,
+    'max_k': 256,
+    'top_k': 8,
+    'ep_settle_steps': 10,
+    'ep_beta': 0.5,
+    'spectral_gamma': 0.95,
+    'memory_gb': torch.cuda.max_memory_allocated()/1e9
+}
+output_path = os.path.join(results_dir, 'smoke_eqprop_results.json')
+with open(output_path, 'w') as f:
+    json.dump(results, f, indent=2)
+print(f"Results saved to {output_path}")

@@ -239,6 +239,23 @@ def run_3dgs_ngs_demo():
     print(f"  EqNGS:    {ep_acc:.2%}")
     print(f"  Memory:   0.03 GB (constant, no activation graph)")
     print(f"{'='*60}")
+
+    # Save results
+    import json
+    import os
+    results_dir = os.path.join(os.path.dirname(__file__), '..', 'results', 'tier0')
+    os.makedirs(results_dir, exist_ok=True)
+    results = {
+        'backprop_acc': bp_acc,
+        'eqngs_acc': ep_acc,
+        'num_classes': num_classes,
+        'num_gaussians': num_gaussians,
+        'latent_dim': latent_dim
+    }
+    output_path = os.path.join(results_dir, 'load_3dgs_results.json')
+    with open(output_path, 'w') as f:
+        json.dump(results, f, indent=2)
+    print(f"Results saved to {output_path}")
     
     return bp_acc, ep_acc
 

@@ -71,3 +71,21 @@ for step in range(5):
     print(f"  Step {step}: domain={domain_id}, loss={loss.item():.4f}")
 
 print("\n✅ MetaGaussianPrior smoke test PASSED")
+
+# Save results
+import json
+import os
+results_dir = os.path.join(os.path.dirname(__file__), '..', 'results', 'tier0')
+os.makedirs(results_dir, exist_ok=True)
+results = {
+    'n_domains': n_domains,
+    'max_k': max_k,
+    'd_latent': d_latent,
+    'params': sum(p.numel() for p in meta_prior.parameters()),
+    'gradient_flow_test': True,
+    'optimizer_test': True
+}
+output_path = os.path.join(results_dir, 'smoke_metagaussian.json')
+with open(output_path, 'w') as f:
+    json.dump(results, f, indent=2)
+print(f"Results saved to {output_path}")

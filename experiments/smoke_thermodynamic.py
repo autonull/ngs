@@ -157,6 +157,21 @@ def run_thermodynamic_demo():
     print("  - Equilibrium: FE = Routing Entropy + lambda * K")
     print("=" * 60)
 
+    # Save results
+    import json
+    import os
+    results_dir = os.path.join(os.path.dirname(__file__), '..', 'results', 'tier0')
+    os.makedirs(results_dir, exist_ok=True)
+    results = {
+        'detailed': {'K_traj': [float(k) for k in K_traj], 'FE_traj': [float(fe) for fe in FE_traj]},
+        'splits': len(model.topology_manager.split_history),
+        'merges': len(model.topology_manager.merge_history)
+    }
+    output_path = os.path.join(results_dir, 'smoke_thermodynamic.json')
+    with open(output_path, 'w') as f:
+        json.dump(results, f, indent=2)
+    print(f"Results saved to {output_path}")
+
 
 if __name__ == "__main__":
     run_thermodynamic_demo()
