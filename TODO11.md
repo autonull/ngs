@@ -628,41 +628,62 @@ python experiments/eqprop_via_epoptimizer.py
 
 **Gate P3:** If EPOptimizer gets >85% on NGS, the defect is SPECIFIC to our custom EqNGSLayer implementation, not to NGS+EP in general. This immediately resurrects the EqNGS paper track.
 
-### Priority 4: High-Leverage Quick Wins
+### Priority 4: High-Leverage Quick Wins (Backprop/Analysis — Run Anytime, Not Gated on EP)
 
 ```
 # 4a. p_down/p_up bottleneck (quick, high impact)
 python experiments/ablate_projections.py
 
-# 4b. Gaussian specialization (pure analysis, no training needed after P2)
+# 4b. Gaussian specialization (pure analysis on P2-trained models)
 python experiments/analyze_gaussian_specialization.py
 
 # 4c. 3DGS robustness sweep (10-minute grid)
 python experiments/diagnose_3dgs_hardness.py
 ```
 
-### Priority 5: OOD Detection & Robustness (Free Results)
+### Priority 5: OOD Detection & Robustness (Backprop/Analysis — Run Anytime)
 
 ```
 python experiments/analyze_ngs_robustness.py
 ```
 
-### Priority 6: Execute Non-Diagnostic Experiments
+### Priority 6: Core Backprop Experiments (Fully Independent of EP Outcome)
 
-Only after priorities 1-5 have produced interpretable results:
+**These produce publishable results regardless of whether EqProp ever works.**
 
 ```
-# 6a. Multi-layer NGS
+# 6a. Multi-layer NGS depth scaling (backprop)
 python experiments/compare_ngs_depth.py
 
-# 6b. Compression
+# 6b. Compression: pruning, quantization, distillation (backprop)
 python experiments/compress_ngs.py
 
-# 6c. Causal analysis
+# 6c. Causal intervention: Gaussian knockout (inference only)
 python experiments/causal_gaussian_knockout.py
 
-# 6d. Few-shot via EP forgetting
+# 6d. Cross-architecture: NGS in ConvNet4 (backprop)
+python experiments/ngs_in_convnet.py  # new: CIFAR-10 with NGS head
+```
+
+### Priority 7: EP-Dependent Experiments (Gate on G6)
+
+**Only run if EPOptimizer on NGS (G6) achieves >80% accuracy.**
+
+```
+# 7a. Few-shot adaptation via EP "forgetting" 
 python experiments/few_shot_via_ep_continual.py
+
+# 7b. EP continual with frozen Gaussians
+python experiments/eqprop_continual_frozen.py
+```
+
+### Priority 8: Negative Results Documentation (Gate on G2 < 0.1)
+
+**If EP-BP cosine similarity < 0.1, document why EP fails with Mahalanobis energy.**
+
+```
+# 8a. Negative results paper
+python experiments/analyze_ep_failure.py  # generates paper figures/tables
 ```
 
 ---
@@ -733,6 +754,89 @@ Variables:
 
 Output: accuracy as function of each variable for NGS vs MLP
 ```
+
+### 6. `experiments/ablate_projections.py`
+
+p_down/p_up bottleneck analysis.
+
+```
+Configs:
+  - Learned linear p_down (baseline)
+  - Fixed random projection (Gaussian)
+  - Fixed Random Fourier Features (256 freqs)
+  - Learned MLP p_down (2 hidden layers)
+
+Metrics: accuracy, FLOPs, parameter count
+```
+
+### 7. `experiments/analyze_gaussian_specialization.py`
+
+Per-Gaussian activation frequency, mutual information with classes, lottery ticket pruning.
+
+```
+Outputs:
+  - activation_freq.json: per-Gaussian top-k appearance rate
+  - mutual_info.json: I(Gaussian_active; class) matrix [K x C]
+  - lottery_ticket.json: accuracy vs pruned K (with/without fine-tuning)
+```
+
+### 8. `experiments/causal_gaussian_knockout.py`
+
+Ablation per Gaussian: zero weight, measure Δaccuracy per class.
+
+```
+Output: importance_matrix.json [K x C], Jaccard similarity of routing under attack
+```
+
+### 9. `experiments/compress_ngs.py`
+
+Magnitude pruning (10/25/50/75%), 8-bit quantization, knowledge distillation (K=256→16/32/64).
+
+### 10. `experiments/analyze_ngs_robustness.py`
+
+OOD detection (MNIST vs Fashion/KMNIST/NotMNIST) and PGD adversarial attack (ε=0.01/0.05/0.1/0.3).
+
+### 11. `experiments/compare_ngs_depth.py`
+
+Multi-layer NGS: 1, 2, 4, 8 layers stacked with residual connections.
+
+### 12. `experiments/eqprop_via_epoptimizer.py`
+
+Bioplausible EPOptimizer applied directly to NGSModel (bypasses custom EqNGSLayer).
+
+### 13. `experiments/ngs_in_convnet.py`
+
+ConvNet4 backbone + NGS head on CIFAR-10/100 (cross-architecture validation).
+
+### 14. `experiments/few_shot_via_ep_continual.py`
+
+Few-shot adaptation using EP continual "forgetting" (Gated on G6 > 80%).
+
+### 15. `experiments/analyze_ep_failure.py`
+
+Generates figures/tables for negative results paper (Gated on G2 < 0.1).
+
+---
+
+## BACKPROP-FIRST TRACK (Explicitly Independent of EP)
+
+**The following experiments produce publishable results even if EqProp NEVER works on NGS:**
+
+| Experiment | Paper Track | Requires EP? | Gated On |
+|------------|-------------|--------------|----------|
+| NGS vs Dense MLP (C1a) | Sparse Routing Architecture | No | P2 |
+| NGS in ConvNet4 (C1b) | Cross-Architecture Transfer | No | P2 |
+| NGS vs Sparse MoE (C1c) | Baseline Comparison | No | P2 |
+| Projection ablation (C4) | Reservoir Computing / Bottleneck | No | P4 |
+| Multi-layer NGS (C3) | Depth Scaling | No | P6a |
+| Gaussian Specialization (C5) | Mechanistic Interpretability | No | P4b |
+| Gaussian Knockout (C9) | Causal Ablation | No | P6c |
+| Pruning/Quantization/Distillation (C7) | Compression | No | P6b |
+| OOD Detection (C8a) | Uncertainty Estimation | No | P5 |
+| Adversarial Robustness (C8b) | Robustness | No | P5 |
+| 3DGS Hardness (A3) | Native 3D Reasoning | No | P4c |
+
+**These 11 experiments form a complete, coherent research program on NGS as a sparse routing primitive.** They can all run with standard backprop training. The EP tracks (B1, C6, C10, D1) are ADDITIONAL, not required for the core contribution.
 
 ---
 
@@ -824,3 +928,95 @@ Based on actual results, NOT projected results:
 - `cosine_sim_ep_vs_bp`: null → need mechanism; >0.5 → mechanism works
 - `energy_convexity`: null → landscape broken; >0.7 → settling viable
 - `entropy_decision_correlation`: ≈0 → signal is noise; >0.3 → topology can learn
+
+---
+
+## ASSUMPTIONS & RISK REGISTER
+
+### Critical Assumptions (Could Invalidate Tracks)
+
+| ID | Assumption | If False | Mitigation |
+|----|------------|----------|------------|
+| **A1** | EPOptimizer's ModelInspector finds NGSModel's submodules as "layer" types | EPOptimizer won't hook into NGS internals; C6 fails | Inspect `ModelInspector.inspect(NGSModel)` first; may need to register NGS submodules explicitly or use a different state-capture approach |
+| **A2** | PGD attack works on NGS with `torch.topk` routing | Top-k is non-differentiable; PGD gradients won't flow through router | Use Gumbel-Softmax relaxation for attack, or straight-through estimator; add to `analyze_ngs_robustness.py` |
+| **A3** | Min Mahalanobis distance to active Gaussians correlates with OOD | Coverage is too sparse (K=32 in 64D); all distances large for in-dist too | Verify coverage first: compute min distance on training data; if > 3σ, OOD signal won't work |
+| **A4** | "Knockout" protocol is well-defined: zeroing a weight requires renormalization, and only affects top-k Gaussians | Protocol ambiguous; results uninterpretable | Define precisely: (a) remove g from top-k indices, recompute weights; OR (b) zero weight[g] and renormalize. Test both. |
+| **A5** | EP continual "forgetting" works as few-shot adaptation | If EP plateau is 67%, the "adapted" model also plateaus at 67% — useless | C10 requires G6 (EPOptimizer) to succeed first. Gate C10 on G6 > 80%. |
+| **A6** | Pruning Gaussians then fine-tuning with EP recovers accuracy | EP may not be able to re-adjust remaining Gaussians to fill coverage holes | Fine-tune with backprop for C7; only use EP if G6 > 80% |
+| **A7** | Bioplausible EPOptimizer works with current PyTorch version | Version mismatch breaks import or API | Pin bioplausible commit; test import before running C6 |
+| **A8** | Results from single seed are meaningful | High variance in EP training could mask effects | All experiments: run 3 seeds minimum; report mean ± std |
+
+### Dependency Chain (Must Run in Order)
+
+```
+P0 (create scripts)
+  → P1 (core diagnostics: G1-G3)
+    → P2 (NGS backprop baseline: G4)
+      → P3 (EPOptimizer on NGS: G6) ───┐
+                                         │
+        ┌───────────────────────────────┘
+        ▼
+    If G6 > 85%:  P4a (projections), P4b (specialization), P6a (depth), P6d (few-shot EP)
+    If G6 < 70%:  P4c (3DGS), P5 (OOD/robustness), P6b (compression), P6c (causal), C11 (negative results)
+```
+
+### Scope Reality Check
+
+| Track | Experiment Count | Est. GPU Hours (single seed) | Feasibility |
+|-------|-----------------|------------------------------|-------------|
+| A0-A4 Diagnostics | 8 scripts | 4-6 hrs | HIGH — pure analysis |
+| C1-C2 Baselines | 3 scripts | 2-3 hrs | HIGH — backprop only |
+| C3-C6 Core | 4 scripts | 8-12 hrs | MEDIUM — C6 critical gate |
+| C7 Compression | 1 script | 4-6 hrs | HIGH — uses trained models |
+| C8 Robustness | 1 script | 6-8 hrs | MEDIUM — needs A2 fix |
+| C9 Causal | 1 script | 2-3 hrs | HIGH — inference only |
+| C10 Few-shot | 1 script | 4-6 hrs | DEPENDS on G6 |
+| C11 Negative | 1 script | 2 hrs | HIGH — documentation |
+
+**Total: ~19 scripts, ~32-44 GPU-hours (single seed). 3 seeds = ~100-130 hrs.**
+
+### Priority Reduction (If Time Constrained)
+
+**Must-do (Gates):**
+1. A0-A4 diagnostics (8 scripts)
+2. C1-C2 baselines (3 scripts)  
+3. C6 EPOptimizer-on-NGS (1 script) — THE critical gate
+4. C9 Causal analysis (1 script) — low cost, high value
+
+**High-value if G6 succeeds:**
+5. C5 Gaussian specialization
+6. C3 Multi-layer NGS
+7. C10 Few-shot EP
+
+**High-value if G6 fails:**
+8. C4 Projections ablation
+9. C7 Compression (backprop models)
+10. C8 OOD/Robustness (backprop models)
+11. C11 Negative results paper
+
+**Deferrable:**
+- C2 Sparse MoE comparison (can cite literature instead)
+- 3DGS real data (dataset prep heavy)
+- Distillation (C7c)
+
+### Invalid Assumptions from TODO9/10 to Explicitly Discard
+
+| Old Assumption | Reality | Action |
+|----------------|---------|--------|
+| "EqNGS just needs hyperparameter tuning" | Plateaus at 67% regardless of hyperparams | Discard; energy function is root cause |
+| "Autopoietic entropy signal is useful" | Entropy is noise; random growth = fixed K | Discard; replace with error-driven split |
+| "EWC works with EP" | Fisher incompatible with EP energy landscape | Discard; use frozen Gaussians or replay |
+| "Spectral norm helps EqNGS" | Ablation shows zero effect | Discard; don't waste time on SN tuning |
+| "MetaGaussian works with 20.5% Omniglot" | 20.5% is random-classifier level (chance=20% for 5-way) | Discard; need 50%+ for signal |
+| "Thermodynamic self-regulates at K=4" | No splits triggered; thresholds wrong | Fix thresholds or discard |
+
+### Opportunities Not Yet Pursued
+
+| Opportunity | Why Now | Effort |
+|-------------|---------|--------|
+| **Gaussian distillation (C7c)** | Never tried for mixture models; could enable large→small compression | 1 script |
+| **Routing entropy as OOD signal (C8a.2)** | Unique to sparse routing; free to compute on trained models | 30 min |
+| **Gaussian specialization (C5)** | No prior work on interpreting NGS internals; mechanistic interpretability angle | 1 script |
+| **Few-shot via EP forgetting (C10)** | Reframing catastrophic forgetting as a feature is novel | 1 script (if G6 works) |
+| **Random projection p_down (C4)** | If works, NGS = differentiable reservoir computing — new paradigm | 1 script |
+| **Negative results paper (C11)** | Community desperately needs "what doesn't work" for EqProp+structured energy | 1-2 weeks writing |
