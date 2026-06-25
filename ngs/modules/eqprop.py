@@ -334,7 +334,7 @@ class EqNGSLayer(nn.Module):
         """
         Perform one EP optimization step:
         1. Free phase settling (no target)
-        2. Nudged phase settling (with target nudge β)
+        2. Nudged phase settling (with target nudge β) - MUST start from SAME initial params
         3. Contrastive update: Δθ ∝ (θ_nudged - θ_free)
         """
         self._ep_training = True
@@ -347,19 +347,28 @@ class EqNGSLayer(nn.Module):
         # Project to latent space
         z = self.ngs.p_down(x)
         
+        # --- SAVE INITIAL PARAMETERS ---
+        initial_params = [p.clone() for p in self.ep_params]
+        
         # --- FREE PHASE ---
         router_free, params_free = self._settle_free_phase(z, self.ep_settle_steps)
+        
+        # --- RESTORE INITIAL PARAMETERS FOR NUDGED PHASE ---
+        with torch.no_grad():
+            for p, p_init in zip(self.ep_params, initial_params):
+                p.data.copy_(p_init)
         
         # --- NUDGED PHASE ---
         router_nudged = self._settle_nudged_phase(z, target, self.ep_settle_steps)
         
         # --- CONTRASTIVE UPDATE ---
-        # Δθ = (θ_nudged - θ_free) * lr
+        # θ_new = θ_start + η(θ_nudged - θ_free)
         with torch.no_grad():
-            for p, p_free in zip(self.ep_params, params_free):
-                p_nudged = p.clone()  # Current state after nudged phase
+            for p, p_free, p_init in zip(self.ep_params, params_free, initial_params):
+                p_nudged = p.clone()  # State after nudged phase
                 delta = p_nudged - p_free
-                p.add_(delta, alpha=self.ep_settle_lr)
+                p.data.copy_(p_init)  # Restore to initial θ_start
+                p.data.add_(delta, alpha=self.ep_settle_lr)  # θ_start + η(θ_nudged - θ_free)
         
         # Enforce spectral constraints
         self.enforce_spectral_constraints()

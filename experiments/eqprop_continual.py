@@ -155,7 +155,16 @@ for task_id, (train_loader, classes) in enumerate(zip(train_loaders, task_classe
     
     # Consolidate task (compute Fisher)
     print(f"  Consolidating task {task_id} (computing Fisher)...")
-    ewc.update_fisher(train_loader, task_id, device=DEVICE)
+    # Wrap loader to flatten inputs for EWC
+    class FlattenLoader:
+        def __init__(self, loader):
+            self.loader = loader
+        def __iter__(self):
+            for x, y in self.loader:
+                yield x.view(x.size(0), -1), y
+        def __len__(self):
+            return len(self.loader)
+    ewc.update_fisher(FlattenLoader(train_loader), task_id, device=DEVICE)
     
     # Evaluate on all tasks so far
     task_accs = []
