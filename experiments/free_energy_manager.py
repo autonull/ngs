@@ -19,7 +19,7 @@ from ngs.core.interfaces import NGSConfig, BaseRouter
 from ngs.modules.routers import MonolithicRouter
 
 
-class FreeEnergyManager(HeuristicManager):
+class FreeEnergyManager(AutopoieticManager):
     """
     Thermodynamic topology control via Free Energy minimization.
     
@@ -206,7 +206,8 @@ class FreeEnergyManager(HeuristicManager):
             self.spawn_history.append(len(self.free_energy_history)-1)
             actions.append("spawn")
             
-        return actions
+        # Match BaseTopologyManager signature Tuple[int, int, int] (pruned, split, spawned)
+        return (0, 1 if split_flag else 0, 1 if spawn_flag else 0)
     
     def _split_gaussian(self, router, idx):
         """Split a Gaussian into two."""

@@ -60,18 +60,7 @@ class MonolithicRouter(BaseRouter):
         return self.active_mask.sum().item()
 
     def initialize_units(self, k_init: int, z_init: torch.Tensor = None):
-        """Initialize first k_init units, optionally from data z_init."""
-        if z_init is not None and z_init.size(0) > 0:
-            with torch.no_grad():
-                idx = torch.randperm(z_init.size(0))[:k_init]
-                self.mu[:k_init].copy_(z_init[idx])
-                self.log_s[:k_init].fill_(0.0)
-                self.log_alpha[:k_init].fill_(0.0)
-        else:
-            with torch.no_grad():
-                self.mu[:k_init].normal_(0, 1.0)
-                self.log_s[:k_init].fill_(0.0)
-                self.log_alpha[:k_init].fill_(0.0)
+        """LSH Initialization ignores data-dependent mu for buckets."""
         self.active_mask[:k_init] = True
 
     def forward(self, z: torch.Tensor) -> RoutingOutput:
@@ -89,7 +78,8 @@ class MonolithicRouter(BaseRouter):
         topk_vals, topk_rel_idx = torch.topk(log_w, k_actual, dim=-1)
         topk_idx = active_idx[topk_rel_idx]
         # Stable softmax with numerical protection
-        topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
+        if topk_vals.size(-1) > 0:
+            topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
         topk_weights = F.softmax(topk_vals, dim=-1)
         
         return RoutingOutput(indices=topk_idx, weights=topk_weights)
@@ -144,7 +134,8 @@ class FactorizedRouter(BaseRouter):
                     start = s * self.units_per_space
                     end = start + active_per_space
                     n = min(active_per_space, len(idx))
-                    self.mu[s, :n].copy_(z_init[idx[:n]])
+                    z_sub = self.subspace_projectors[s](z_init[idx[:n]])
+                    self.mu[s, :n].copy_(z_sub)
                     self.log_s[s, :n].fill_(0.0)
                     self.log_alpha[s, :n].fill_(0.0)
                     self.active_mask[start:start+n] = True
@@ -187,7 +178,8 @@ class FactorizedRouter(BaseRouter):
             k_actual = min(self.top_k, len(active_local))
             topk_vals, topk_rel_idx = torch.topk(log_w, k_actual, dim=-1)
             # Stable softmax with numerical protection
-            topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
+            if topk_vals.size(-1) > 0:
+                topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
             topk_weights = F.softmax(topk_vals, dim=-1)
             
             topk_global = active_local[topk_rel_idx] + start
@@ -197,6 +189,7 @@ class FactorizedRouter(BaseRouter):
         flat_indices = torch.cat(all_indices, dim=1)
         # Normalize weights across all subspaces so total sums to 1
         flat_weights = torch.cat(all_weights, dim=1)
+        # Normalize weights so each sample sums to 1
         weight_sum = flat_weights.sum(dim=-1, keepdim=True).clamp(min=1e-8)
         flat_weights = flat_weights / weight_sum
         
@@ -230,18 +223,7 @@ class LSRRouter(BaseRouter):
         return self.active_mask.sum().item()
 
     def initialize_units(self, k_init: int, z_init: torch.Tensor = None):
-        """Initialize first k_init units, optionally from data z_init."""
-        if z_init is not None and z_init.size(0) > 0:
-            with torch.no_grad():
-                idx = torch.randperm(z_init.size(0))[:k_init]
-                self.mu[:k_init].copy_(z_init[idx])
-                self.log_s[:k_init].fill_(0.0)
-                self.log_alpha[:k_init].fill_(0.0)
-        else:
-            with torch.no_grad():
-                self.mu[:k_init].normal_(0, 1.0)
-                self.log_s[:k_init].fill_(0.0)
-                self.log_alpha[:k_init].fill_(0.0)
+        """LSH Initialization ignores data-dependent mu for buckets."""
         self.active_mask[:k_init] = True
 
     def forward(self, z: torch.Tensor) -> RoutingOutput:
@@ -254,11 +236,12 @@ class LSRRouter(BaseRouter):
         scores = z_norm @ centers_norm.T  # [B, num_buckets]
         
         # Filter inactive units by setting their scores to -inf
-        scores = torch.where(self.active_mask.unsqueeze(0), scores, 
+        scores = torch.where(self.active_mask.unsqueeze(0)[:scores.size(0), :scores.size(1)], scores,
                             torch.tensor(-1e8, device=scores.device))
         
         topk_vals, topk_idx = torch.topk(scores, min(self.top_k, self.num_buckets), dim=-1)
-        topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
+        if topk_vals.size(-1) > 0:
+            topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
         topk_weights = F.softmax(topk_vals, dim=-1)
         
         return RoutingOutput(indices=topk_idx, weights=topk_weights)
@@ -307,22 +290,31 @@ class HierarchicalRouter(BaseRouter):
         per_level = -(-k_init // self.num_levels)
         if z_init is not None and z_init.size(0) > 0:
             with torch.no_grad():
-                idx = torch.randperm(z_init.size(0))[:k_init]
+                if z_init.size(0) >= k_init:
+                    idx = torch.randperm(z_init.size(0))[:k_init]
+                    z_chosen = z_init[idx]
+                else:
+                    repeats = -(-k_init // z_init.size(0))
+                    z_chosen = z_init.repeat(repeats, 1)[:k_init]
                 for l in range(self.num_levels):
                     mask = getattr(self, f'level_{l}_active_mask')
                     n = min(per_level, len(mask))
-                    getattr(self, f'level_{l}_mu')[:n].copy_(z_init[idx[:n]])
-                    getattr(self, f'level_{l}_log_s')[:n].fill_(0.0)
-                    getattr(self, f'level_{l}_log_alpha')[:n].fill_(0.0)
-                    mask[:n] = True
+                    start_idx = min(l * per_level, len(z_chosen))
+                    end_idx = min(start_idx + n, len(z_chosen))
+                    actual_n = end_idx - start_idx
+                    if actual_n > 0:
+                        self.level_mu[l][:actual_n].copy_(z_chosen[start_idx:end_idx])
+                        self.level_log_s[l][:actual_n].fill_(0.0)
+                        self.level_log_alpha[l][:actual_n].fill_(0.0)
+                        mask[:actual_n] = True
         else:
             for l in range(self.num_levels):
                 mask = getattr(self, f'level_{l}_active_mask')
                 mask[:min(per_level, len(mask))] = True
                 with torch.no_grad():
-                    getattr(self, f'level_{l}_mu')[:min(per_level, len(mask))].normal_(0, 1.0)
-                    getattr(self, f'level_{l}_log_s')[:min(per_level, len(mask))].fill_(0.0)
-                    getattr(self, f'level_{l}_log_alpha')[:min(per_level, len(mask))].fill_(0.0)
+                    self.level_mu[l][:min(per_level, len(mask))].normal_(0, 1.0)
+                    self.level_log_s[l][:min(per_level, len(mask))].fill_(0.0)
+                    self.level_log_alpha[l][:min(per_level, len(mask))].fill_(0.0)
 
     def forward(self, z: torch.Tensor) -> RoutingOutput:
         B = z.shape[0]
@@ -352,7 +344,8 @@ class HierarchicalRouter(BaseRouter):
             k_actual = min(self.level_top_k, len(active_idx))
             topk_vals, topk_rel_idx = torch.topk(log_w, k_actual, dim=-1)
             # Stable softmax
-            topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
+            if topk_vals.size(-1) > 0:
+                topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
             topk_weights = F.softmax(topk_vals, dim=-1)
             topk_idx = active_idx[topk_rel_idx]
             
@@ -398,18 +391,7 @@ class GaussianAttentionRouter(BaseRouter):
         return self.active_mask.sum().item()
 
     def initialize_units(self, k_init: int, z_init: torch.Tensor = None):
-        """Initialize first k_init units, optionally from data z_init."""
-        if z_init is not None and z_init.size(0) > 0:
-            with torch.no_grad():
-                idx = torch.randperm(z_init.size(0))[:k_init]
-                self.mu[:k_init].copy_(z_init[idx])
-                self.log_s[:k_init].fill_(0.0)
-                self.log_alpha[:k_init].fill_(0.0)
-        else:
-            with torch.no_grad():
-                self.mu[:k_init].normal_(0, 1.0)
-                self.log_s[:k_init].fill_(0.0)
-                self.log_alpha[:k_init].fill_(0.0)
+        """LSH Initialization ignores data-dependent mu for buckets."""
         self.active_mask[:k_init] = True
 
     def forward(self, z: torch.Tensor) -> RoutingOutput:
@@ -444,7 +426,8 @@ class GaussianAttentionRouter(BaseRouter):
         topk_vals, topk_rel_idx = torch.topk(scores, k_actual, dim=-1)
         topk_idx = active_idx[topk_rel_idx]
         # Stable softmax
-        topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
+        if topk_vals.size(-1) > 0:
+            topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
         topk_weights = F.softmax(topk_vals / self.tau, dim=-1)
         topk_weights = self.dropout(topk_weights)
         
@@ -480,18 +463,7 @@ class UncertaintyAwareRouter(BaseRouter):
         return self.active_mask.sum().item()
 
     def initialize_units(self, k_init: int, z_init: torch.Tensor = None):
-        """Initialize first k_init units, optionally from data z_init."""
-        if z_init is not None and z_init.size(0) > 0:
-            with torch.no_grad():
-                idx = torch.randperm(z_init.size(0))[:k_init]
-                self.mu[:k_init].copy_(z_init[idx])
-                self.log_s[:k_init].fill_(0.0)
-                self.log_alpha[:k_init].fill_(0.0)
-        else:
-            with torch.no_grad():
-                self.mu[:k_init].normal_(0, 1.0)
-                self.log_s[:k_init].fill_(0.0)
-                self.log_alpha[:k_init].fill_(0.0)
+        """LSH Initialization ignores data-dependent mu for buckets."""
         self.active_mask[:k_init] = True
 
     def forward(self, z: torch.Tensor) -> RoutingOutput:
@@ -518,7 +490,8 @@ class UncertaintyAwareRouter(BaseRouter):
         topk_vals, topk_rel_idx = torch.topk(log_w, k_actual, dim=-1)
         topk_idx = active_idx[topk_rel_idx]
         # Stable softmax
-        topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
+        if topk_vals.size(-1) > 0:
+            topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
         topk_weights = F.softmax(topk_vals, dim=-1)
         
         # Evidential uncertainty with numerical guards

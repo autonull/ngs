@@ -65,7 +65,7 @@ class NGSTrainer:
         self,
         model: nn.Module,
         config: TrainerConfig,
-        device: str = 'cuda',
+        device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
         callbacks: Optional[list] = None
     ):
         self.model = model.to(device)
@@ -336,7 +336,7 @@ class ContinualTrainer(NGSTrainer):
 def create_trainer(
     model: nn.Module,
     config: TrainerConfig,
-    device: str = 'cuda',
+    device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
     continual: bool = False,
     **kwargs
 ) -> NGSTrainer:

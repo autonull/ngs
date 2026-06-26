@@ -94,6 +94,8 @@ class NGSModel(nn.Module):
     @property
     def K(self) -> int:
         """Number of active units."""
+        if not self._router_initialized:
+            return self._k_init
         if hasattr(self.router, 'active_mask'):
             return self.router.active_mask.sum().item()
         if hasattr(self.router, 'K'):
@@ -298,6 +300,8 @@ class NGSModel(nn.Module):
         sig = torch.sigmoid(self.split_gate)
         # Normalize error density to [0, 1] as target
         err = self.error_density / (self.error_density.max() + 1e-8)
+        # Clamp targets slightly to avoid log(0) in BCE if implemented custom later
+        err = err.clamp(min=1e-6, max=1.0 - 1e-6)
         # Use sigmoid output matching for BCE (both in [0,1])
         return F.binary_cross_entropy(sig, err.detach())
     
@@ -324,9 +328,11 @@ class NGSModel(nn.Module):
                 dist = torch.cdist(mu_s, mu_s, p=2)
                 eye = ~torch.eye(len(sub_active), dtype=torch.bool, device=mu_s.device)
                 if eye.any():
-                    min_dist = dist[eye].min()
-                    if not torch.isnan(min_dist):
-                        losses.append(-min_dist)
+                    # Repel all close pairs (softmin) to provide smoother gradients
+                    close_dists = dist[eye]
+                    if len(close_dists) > 0:
+                        soft_min = -torch.logsumexp(-close_dists, dim=0)
+                        losses.append(-soft_min)
             if not losses:
                 return torch.tensor(0.0, device=self.p_down.weight.device)
             return torch.stack(losses).mean()
@@ -337,8 +343,9 @@ class NGSModel(nn.Module):
         mask = ~torch.eye(len(active_idx), dtype=torch.bool, device=mu.device)
         if not mask.any():
             return torch.tensor(0.0, device=self.p_down.weight.device)
-        min_dist = dist[mask].min()
-        return -min_dist if not torch.isnan(min_dist) else torch.tensor(0.0, device=self.p_down.weight.device)
+        close_dists = dist[mask]
+        soft_min = -torch.logsumexp(-close_dists, dim=0)
+        return -soft_min
     
     def compute_topology_losses(self) -> Dict[str, torch.Tensor]:
         """Compute all topology-related losses."""
