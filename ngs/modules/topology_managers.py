@@ -746,9 +746,10 @@ class AutopoieticManager(BaseTopologyManager):
                 log_alpha.data[new_idx] = log_alpha[split_idx].clone()
                 
                 # Track tree structure
+                device = router.active_mask.device
                 if self.tree_depth is None:
-                    self.tree_depth = torch.zeros_like(router.active_mask, dtype=torch.long)
-                    self.tree_parent = torch.full_like(router.active_mask, -1, dtype=torch.long)
+                    self.tree_depth = torch.zeros_like(router.active_mask, dtype=torch.long, device=device)
+                    self.tree_parent = torch.full_like(router.active_mask, -1, dtype=torch.long, device=device)
                     self.tree_children = [[] for _ in range(router.max_k)]
                 
                 self.tree_depth[new_idx] = self.tree_depth[split_idx] + 1

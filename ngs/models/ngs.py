@@ -62,9 +62,9 @@ class NGSModel(nn.Module):
         self.register_buffer('activation_density', torch.zeros(config.max_k))
         self.register_buffer('error_density', torch.zeros(config.max_k))
         
-        # Initialize router units
-        if hasattr(self.router, 'initialize_units'):
-            self.router.initialize_units(config.k_init)
+        # Initialize router units (lazy data-dependent init on first forward)
+        self._router_initialized = False
+        self._k_init = config.k_init
     
     def _build_param_stores_per_subspace(self):
         """Build parameter stores for each subspace (used by FactorizedRouter)."""
@@ -111,6 +111,11 @@ class NGSModel(nn.Module):
             output object with logits and routing info
         """
         z = self.p_down(x)  # [B, d]
+        
+        # Lazy data-dependent router initialization
+        if not self._router_initialized and hasattr(self.router, 'initialize_units'):
+            self.router.initialize_units(self._k_init, z)
+            self._router_initialized = True
         
         # Route to active units
         routing_output = self.router(z)

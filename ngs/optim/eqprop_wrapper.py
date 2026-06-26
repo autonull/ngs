@@ -1,9 +1,19 @@
 """
 Thin wrapper to import EqProp components from bioplausible.
-bioplausible is at /home/me/ngs/bioplausible/mep
 """
 import sys
-sys.path.insert(0, '/home/me/ngs/bioplausible/mep')
+from pathlib import Path
+
+# Try to find bioplausible relative to this file
+_bioplausible_path = Path(__file__).parent.parent.parent / 'bioplausible' / 'mep'
+if _bioplausible_path.exists():
+    sys.path.insert(0, str(_bioplausible_path))
+else:
+    # Fallback to common locations
+    for p in ['/home/me/ngs/bioplausible/mep', '/home/me/bioplausible/mep', '../bioplausible/mep']:
+        if Path(p).exists():
+            sys.path.insert(0, p)
+            break
 
 # Core EP optimizer with smep/smep_fast/muon_backprop presets
 from mep.optimizers import EPOptimizer, smep, smep_fast, muon_backprop, EWCState, EWCRegularizer

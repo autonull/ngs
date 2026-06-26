@@ -59,7 +59,19 @@ class MonolithicRouter(BaseRouter):
     def K(self) -> int:
         return self.active_mask.sum().item()
 
-    def initialize_units(self, k_init: int):
+    def initialize_units(self, k_init: int, z_init: torch.Tensor = None):
+        """Initialize first k_init units, optionally from data z_init."""
+        if z_init is not None and z_init.size(0) > 0:
+            with torch.no_grad():
+                idx = torch.randperm(z_init.size(0))[:k_init]
+                self.mu[:k_init].copy_(z_init[idx])
+                self.log_s[:k_init].fill_(0.0)
+                self.log_alpha[:k_init].fill_(0.0)
+        else:
+            with torch.no_grad():
+                self.mu[:k_init].normal_(0, 1.0)
+                self.log_s[:k_init].fill_(0.0)
+                self.log_alpha[:k_init].fill_(0.0)
         self.active_mask[:k_init] = True
 
     def forward(self, z: torch.Tensor) -> RoutingOutput:
@@ -123,11 +135,27 @@ class FactorizedRouter(BaseRouter):
     def K(self) -> int:
         return self.active_mask.sum().item()
 
-    def initialize_units(self, k_init: int):
+    def initialize_units(self, k_init: int, z_init: torch.Tensor = None):
         active_per_space = -(-k_init // self.num_subspaces)
-        for s in range(self.num_subspaces):
-            start = s * self.units_per_space
-            self.active_mask[start:start + active_per_space] = True
+        if z_init is not None and z_init.size(0) > 0:
+            with torch.no_grad():
+                idx = torch.randperm(z_init.size(0))[:k_init]
+                for s in range(self.num_subspaces):
+                    start = s * self.units_per_space
+                    end = start + active_per_space
+                    n = min(active_per_space, len(idx))
+                    self.mu[s, :n].copy_(z_init[idx[:n]])
+                    self.log_s[s, :n].fill_(0.0)
+                    self.log_alpha[s, :n].fill_(0.0)
+                    self.active_mask[start:start+n] = True
+        else:
+            for s in range(self.num_subspaces):
+                start = s * self.units_per_space
+                self.active_mask[start:start + active_per_space] = True
+                with torch.no_grad():
+                    self.mu[s, :active_per_space].normal_(0, 1.0)
+                    self.log_s[s, :active_per_space].fill_(0.0)
+                    self.log_alpha[s, :active_per_space].fill_(0.0)
 
     def forward(self, z: torch.Tensor) -> RoutingOutput:
         B = z.shape[0]
@@ -201,8 +229,20 @@ class LSRRouter(BaseRouter):
     def K(self) -> int:
         return self.active_mask.sum().item()
 
-    def initialize_units(self, k_init: int):
-        self.active_mask[:min(k_init, self.num_buckets)] = True
+    def initialize_units(self, k_init: int, z_init: torch.Tensor = None):
+        """Initialize first k_init units, optionally from data z_init."""
+        if z_init is not None and z_init.size(0) > 0:
+            with torch.no_grad():
+                idx = torch.randperm(z_init.size(0))[:k_init]
+                self.mu[:k_init].copy_(z_init[idx])
+                self.log_s[:k_init].fill_(0.0)
+                self.log_alpha[:k_init].fill_(0.0)
+        else:
+            with torch.no_grad():
+                self.mu[:k_init].normal_(0, 1.0)
+                self.log_s[:k_init].fill_(0.0)
+                self.log_alpha[:k_init].fill_(0.0)
+        self.active_mask[:k_init] = True
 
     def forward(self, z: torch.Tensor) -> RoutingOutput:
         B = z.shape[0]
@@ -263,11 +303,26 @@ class HierarchicalRouter(BaseRouter):
             total += mask.sum().item()
         return total
 
-    def initialize_units(self, k_init: int):
+    def initialize_units(self, k_init: int, z_init: torch.Tensor = None):
         per_level = -(-k_init // self.num_levels)
-        for l in range(self.num_levels):
-            mask = getattr(self, f'level_{l}_active_mask')
-            mask[:min(per_level, len(mask))] = True
+        if z_init is not None and z_init.size(0) > 0:
+            with torch.no_grad():
+                idx = torch.randperm(z_init.size(0))[:k_init]
+                for l in range(self.num_levels):
+                    mask = getattr(self, f'level_{l}_active_mask')
+                    n = min(per_level, len(mask))
+                    getattr(self, f'level_{l}_mu')[:n].copy_(z_init[idx[:n]])
+                    getattr(self, f'level_{l}_log_s')[:n].fill_(0.0)
+                    getattr(self, f'level_{l}_log_alpha')[:n].fill_(0.0)
+                    mask[:n] = True
+        else:
+            for l in range(self.num_levels):
+                mask = getattr(self, f'level_{l}_active_mask')
+                mask[:min(per_level, len(mask))] = True
+                with torch.no_grad():
+                    getattr(self, f'level_{l}_mu')[:min(per_level, len(mask))].normal_(0, 1.0)
+                    getattr(self, f'level_{l}_log_s')[:min(per_level, len(mask))].fill_(0.0)
+                    getattr(self, f'level_{l}_log_alpha')[:min(per_level, len(mask))].fill_(0.0)
 
     def forward(self, z: torch.Tensor) -> RoutingOutput:
         B = z.shape[0]
@@ -342,7 +397,19 @@ class GaussianAttentionRouter(BaseRouter):
     def K(self) -> int:
         return self.active_mask.sum().item()
 
-    def initialize_units(self, k_init: int):
+    def initialize_units(self, k_init: int, z_init: torch.Tensor = None):
+        """Initialize first k_init units, optionally from data z_init."""
+        if z_init is not None and z_init.size(0) > 0:
+            with torch.no_grad():
+                idx = torch.randperm(z_init.size(0))[:k_init]
+                self.mu[:k_init].copy_(z_init[idx])
+                self.log_s[:k_init].fill_(0.0)
+                self.log_alpha[:k_init].fill_(0.0)
+        else:
+            with torch.no_grad():
+                self.mu[:k_init].normal_(0, 1.0)
+                self.log_s[:k_init].fill_(0.0)
+                self.log_alpha[:k_init].fill_(0.0)
         self.active_mask[:k_init] = True
 
     def forward(self, z: torch.Tensor) -> RoutingOutput:
@@ -412,7 +479,19 @@ class UncertaintyAwareRouter(BaseRouter):
     def K(self) -> int:
         return self.active_mask.sum().item()
 
-    def initialize_units(self, k_init: int):
+    def initialize_units(self, k_init: int, z_init: torch.Tensor = None):
+        """Initialize first k_init units, optionally from data z_init."""
+        if z_init is not None and z_init.size(0) > 0:
+            with torch.no_grad():
+                idx = torch.randperm(z_init.size(0))[:k_init]
+                self.mu[:k_init].copy_(z_init[idx])
+                self.log_s[:k_init].fill_(0.0)
+                self.log_alpha[:k_init].fill_(0.0)
+        else:
+            with torch.no_grad():
+                self.mu[:k_init].normal_(0, 1.0)
+                self.log_s[:k_init].fill_(0.0)
+                self.log_alpha[:k_init].fill_(0.0)
         self.active_mask[:k_init] = True
 
     def forward(self, z: torch.Tensor) -> RoutingOutput:
