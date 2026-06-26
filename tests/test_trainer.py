@@ -21,7 +21,7 @@ class TestTrainer:
             batch_size=32,
         )
 
-        trainer = NGSTrainer(model, trainer_config)
+        trainer = NGSTrainer(model.to('cpu'), trainer_config)
 
         assert trainer.model is model
         assert trainer.config.lr == 1e-3
@@ -37,7 +37,7 @@ class TestTrainer:
             batch_size=32,
         )
 
-        trainer = NGSTrainer(model, trainer_config)
+        trainer = NGSTrainer(model.to('cpu'), trainer_config)
 
         # Create dummy data
         dataset = torch.utils.data.TensorDataset(
@@ -68,7 +68,7 @@ class TestTrainer:
             replay_ratio=0.5,
         )
 
-        trainer = NGSTrainer(model, trainer_config)
+        trainer = NGSTrainer(model.to('cpu'), trainer_config)
 
         dataset = torch.utils.data.TensorDataset(
             torch.randn(100, 784),
@@ -91,7 +91,7 @@ class TestTrainer:
             kd_temperature=2.0,
         )
 
-        trainer = NGSTrainer(model, trainer_config)
+        trainer = NGSTrainer(model.to('cpu'), trainer_config)
 
         # Create old model
         import copy
@@ -120,7 +120,7 @@ class TestTrainer:
             lr_scheduler='cosine',
         )
 
-        trainer = NGSTrainer(model, trainer_config)
+        trainer = NGSTrainer(model.to('cpu'), trainer_config)
 
         assert trainer.scheduler is not None
 
@@ -152,7 +152,7 @@ class TestTrainer:
             grad_clip=1.0,
         )
 
-        trainer = NGSTrainer(model, trainer_config)
+        trainer = NGSTrainer(model.to('cpu'), trainer_config)
 
         dataset = torch.utils.data.TensorDataset(
             torch.randn(50, 784),

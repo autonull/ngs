@@ -30,7 +30,7 @@ class TestContinualLearning:
             kd_weight=5.0,
         )
 
-        trainer = NGSTrainer(model, trainer_config)
+        trainer = NGSTrainer(model.to('cpu'), trainer_config)
 
         from experiments.datasets import get_task_loaders, ReplayBuffer
         from experiments.metrics import evaluate_model_on_task
@@ -76,7 +76,7 @@ class TestContinualLearning:
             kd_weight=10.0,
         )
 
-        trainer = NGSTrainer(model, trainer_config)
+        trainer = NGSTrainer(model.to('cpu'), trainer_config)
 
         from experiments.datasets import get_task_loaders
         from experiments.metrics import evaluate_model_on_task
@@ -117,7 +117,7 @@ class TestContinualLearning:
             replay_ratio=1.0,
         )
 
-        trainer = NGSTrainer(model, trainer_config)
+        trainer = NGSTrainer(model.to('cpu'), trainer_config)
 
         from experiments.datasets import get_task_loaders, ReplayBuffer
         from experiments.metrics import evaluate_model_on_task
@@ -166,7 +166,7 @@ class TestContinualLearning:
             batch_size=64,
         )
 
-        trainer = NGSTrainer(model, trainer_config)
+        trainer = NGSTrainer(model.to('cpu'), trainer_config)
 
         from experiments.datasets import get_task_loaders
 
@@ -201,7 +201,7 @@ class TestContinualLearning:
             batch_size=64,
         )
 
-        trainer = NGSTrainer(model, trainer_config)
+        trainer = NGSTrainer(model.to('cpu'), trainer_config)
 
         from experiments.datasets import get_task_loaders
 

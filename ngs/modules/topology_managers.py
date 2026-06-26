@@ -747,7 +747,7 @@ class AutopoieticManager(BaseTopologyManager):
                 
                 # Track tree structure
                 device = router.active_mask.device
-                if self.tree_depth is None:
+                if self.tree_depth is None or self.tree_depth.device != device:
                     self.tree_depth = torch.zeros_like(router.active_mask, dtype=torch.long, device=device)
                     self.tree_parent = torch.full_like(router.active_mask, -1, dtype=torch.long, device=device)
                     self.tree_children = [[] for _ in range(router.max_k)]
