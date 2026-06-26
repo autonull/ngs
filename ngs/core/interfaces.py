@@ -62,6 +62,13 @@ class NGSConfig:
     split_threshold: float = 0.05
     prune_threshold: float = 0.01
     
+    # TODO12 Tracks
+    use_mlp_projections: bool = False  # Track A5
+    mlp_hidden_multiplier: int = 4
+    soft_routing: bool = False  # Track A6 (ablate top-k)
+    gamma_residual: float = 0.1  # Track A3
+    beta_residual: float = 0.1   # Track A3
+
     # Hierarchical routing
     num_levels: int = 3
     level_capacity_ratio: float = 0.5

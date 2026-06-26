@@ -31,10 +31,17 @@ def _mahalanobis_distance_squared(x: torch.Tensor, mu: torch.Tensor, log_s: torc
     """
     s_sq = torch.exp(2 * log_s) + eps
     if mu.dim() == 2:
-        diff = x.unsqueeze(1) - mu.unsqueeze(0)  # [B, K, d]
+        # Memory-efficient computation avoiding [B, K, d] allocation
+        # (x - mu)^2 / s^2 = x^2 / s^2 - 2x*mu / s^2 + mu^2 / s^2
+        inv_s_sq = 1.0 / s_sq
+        term1 = (x ** 2) @ inv_s_sq.T
+        term2 = -2.0 * (x @ (mu * inv_s_sq).T)
+        term3 = ((mu ** 2) * inv_s_sq).sum(dim=-1)
+        # Ensure non-negative output due to numerical errors
+        return (term1 + term2 + term3).clamp(min=0.0)
     else:
         diff = x.unsqueeze(1) - mu  # [B, K, d]
-    return ((diff ** 2) / s_sq).sum(dim=-1)  # [B, K]
+        return ((diff ** 2) / s_sq).sum(dim=-1)  # [B, K]
 
 
 class MonolithicRouter(BaseRouter):
@@ -69,14 +76,19 @@ class MonolithicRouter(BaseRouter):
         log_s = self.log_s[active_idx]
         log_alpha = self.log_alpha[active_idx]
         
-        diff = z.unsqueeze(1) - mu.unsqueeze(0)
-        s_sq = torch.exp(2 * log_s) + self.eps
-        mahalanobis_sq = ((diff ** 2) / s_sq).sum(dim=-1)
+        mahalanobis_sq = _mahalanobis_distance_squared(z, mu, log_s, self.eps)
         
         log_w = log_alpha - (0.5 / self.tau) * mahalanobis_sq
-        k_actual = min(self.top_k, self.K)
-        topk_vals, topk_rel_idx = torch.topk(log_w, k_actual, dim=-1)
-        topk_idx = active_idx[topk_rel_idx]
+
+        if getattr(self.config, 'soft_routing', False):
+            # Track A6: Soft routing (ablate top-k, use all active)
+            topk_vals = log_w
+            topk_idx = active_idx.unsqueeze(0).expand(z.shape[0], -1)
+        else:
+            k_actual = min(self.top_k, self.K)
+            topk_vals, topk_rel_idx = torch.topk(log_w, k_actual, dim=-1)
+            topk_idx = active_idx[topk_rel_idx]
+
         # Stable softmax with numerical protection
         if topk_vals.size(-1) > 0:
             topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
@@ -170,19 +182,23 @@ class FactorizedRouter(BaseRouter):
             log_s_s = self.log_s[s][active_local]
             log_alpha_s = self.log_alpha[s][active_local]
             
-            diff = z_s.unsqueeze(1) - mu_s.unsqueeze(0)
-            s_sq = torch.exp(2 * log_s_s) + self.eps
-            mahalanobis_sq = ((diff ** 2) / s_sq).sum(dim=-1)
+            mahalanobis_sq = _mahalanobis_distance_squared(z_s, mu_s, log_s_s, self.eps)
             
             log_w = log_alpha_s - (0.5 / self.tau) * mahalanobis_sq
-            k_actual = min(self.top_k, len(active_local))
-            topk_vals, topk_rel_idx = torch.topk(log_w, k_actual, dim=-1)
+
+            if getattr(self.config, 'soft_routing', False):
+                topk_vals = log_w
+                topk_global = active_local.unsqueeze(0).expand(z.shape[0], -1) + start
+            else:
+                k_actual = min(self.top_k, len(active_local))
+                topk_vals, topk_rel_idx = torch.topk(log_w, k_actual, dim=-1)
+                topk_global = active_local[topk_rel_idx] + start
+
             # Stable softmax with numerical protection
             if topk_vals.size(-1) > 0:
                 topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
             topk_weights = F.softmax(topk_vals, dim=-1)
             
-            topk_global = active_local[topk_rel_idx] + start
             all_indices.append(topk_global)
             all_weights.append(topk_weights)
         
@@ -236,8 +252,10 @@ class LSRRouter(BaseRouter):
         scores = z_norm @ centers_norm.T  # [B, num_buckets]
         
         # Filter inactive units by setting their scores to -inf
-        scores = torch.where(self.active_mask.unsqueeze(0)[:scores.size(0), :scores.size(1)], scores,
-                            torch.tensor(-1e8, device=scores.device))
+        # Fix: active_mask has shape [num_buckets], unsqueeze(0) gives [1, num_buckets]
+        # Broadcast to [B, num_buckets] properly
+        mask = self.active_mask.unsqueeze(0).expand(B, -1)
+        scores = torch.where(mask, scores, torch.tensor(-1e8, device=scores.device))
         
         topk_vals, topk_idx = torch.topk(scores, min(self.top_k, self.num_buckets), dim=-1)
         if topk_vals.size(-1) > 0:
@@ -336,9 +354,7 @@ class HierarchicalRouter(BaseRouter):
             log_s = self.level_log_s[l][active_idx]
             log_alpha = self.level_log_alpha[l][active_idx]
             
-            diff = z.unsqueeze(1) - mu.unsqueeze(0)
-            s_sq = torch.exp(2 * log_s) + self.eps
-            mahalanobis_sq = ((diff ** 2) / s_sq).sum(dim=-1)
+            mahalanobis_sq = _mahalanobis_distance_squared(z, mu, log_s, self.eps)
             
             log_w = log_alpha - (0.5 / self.tau) * mahalanobis_sq
             k_actual = min(self.level_top_k, len(active_idx))
@@ -413,10 +429,8 @@ class GaussianAttentionRouter(BaseRouter):
         k = self.k_proj(mu)  # [K, d]
         
         # Mahalanobis attention scores
-        # Correct broadcasting: [B, 1, d] - [1, K, d] -> [B, K, d]
-        diff = q.unsqueeze(1) - k.unsqueeze(0)  # [B, K, d]
-        s_sq = torch.exp(2 * log_s) + self.eps  # [K, d]
-        scores = -0.5 * ((diff ** 2) / s_sq).sum(dim=-1)  # [B, K]
+        mahalanobis_sq = _mahalanobis_distance_squared(q, k, log_s, self.eps)
+        scores = -0.5 * mahalanobis_sq  # [B, K]
         
         # Add alpha (opacity)
         scores = scores + log_alpha.unsqueeze(0)
@@ -425,10 +439,14 @@ class GaussianAttentionRouter(BaseRouter):
         k_actual = min(self.sparse_top_k, self.K)
         topk_vals, topk_rel_idx = torch.topk(scores, k_actual, dim=-1)
         topk_idx = active_idx[topk_rel_idx]
-        # Stable softmax
+        # Stable softmax: apply temperature BEFORE subtracting max!
         if topk_vals.size(-1) > 0:
-            topk_vals = topk_vals - topk_vals.max(dim=-1, keepdim=True).values
-        topk_weights = F.softmax(topk_vals / self.tau, dim=-1)
+            scaled_vals = topk_vals / self.tau
+            scaled_vals = scaled_vals - scaled_vals.max(dim=-1, keepdim=True).values
+            topk_weights = F.softmax(scaled_vals, dim=-1)
+        else:
+            topk_weights = F.softmax(topk_vals / self.tau, dim=-1)
+
         topk_weights = self.dropout(topk_weights)
         
         return RoutingOutput(indices=topk_idx, weights=topk_weights)
@@ -481,9 +499,7 @@ class UncertaintyAwareRouter(BaseRouter):
         log_s = self.log_s[active_idx]
         log_alpha = self.log_alpha[active_idx]
         
-        diff = z.unsqueeze(1) - mu.unsqueeze(0)
-        s_sq = torch.exp(2 * log_s) + self.eps
-        mahalanobis_sq = ((diff ** 2) / s_sq).sum(dim=-1)
+        mahalanobis_sq = _mahalanobis_distance_squared(z, mu, log_s, self.eps)
         
         log_w = log_alpha - (0.5 / self.tau) * mahalanobis_sq
         k_actual = min(self.top_k, self.K)
@@ -499,7 +515,9 @@ class UncertaintyAwareRouter(BaseRouter):
         alpha = F.softplus(evidence) + self.evidential_prior
         total_alpha = alpha.sum(dim=-1, keepdim=True).clamp(min=self.eps)
         # Expected predictive uncertainty: K / sum(alpha) where K=num_classes
-        uncertainty = alpha.size(-1) / total_alpha.squeeze(-1).clamp(min=1e-8)  # [B]
+        # Use dynamic classes from the output of the head!
+        K_classes = alpha.size(-1)
+        uncertainty = K_classes / total_alpha.squeeze(-1).clamp(min=1e-8)  # [B]
         uncertainty = uncertainty.clamp(max=1.0)  # Bound for stability
         
         return RoutingOutput(
