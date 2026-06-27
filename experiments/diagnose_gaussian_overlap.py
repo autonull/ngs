@@ -109,11 +109,11 @@ def main():
         
         results["static_analysis"] = {
             "K_active": K_active,
-            "mean_overlap": off_diag_overlaps.mean().item(),
-            "std_overlap": off_diag_overlaps.std().item(),
-            "min_overlap": off_diag_overlaps.min().item(),
-            "max_overlap": off_diag_overlaps.max().item(),
-            "median_overlap": off_diag_overlaps.median().item(),
+            "mean_overlap": off_diag_overlaps.mean().item() if K_active > 1 else 0.0,
+            "std_overlap": off_diag_overlaps.std().item() if K_active > 1 and off_diag_overlaps.numel() > 1 else 0.0,
+            "min_overlap": off_diag_overlaps.min().item() if off_diag_overlaps.numel() > 0 else 0.0,
+            "max_overlap": off_diag_overlaps.max().item() if off_diag_overlaps.numel() > 0 else 0.0,
+            "median_overlap": off_diag_overlaps.median().item() if off_diag_overlaps.numel() > 0 else 0.0,
             "pct_high_overlap_05": (off_diag_overlaps > 0.5).float().mean().item(),
             "pct_high_overlap_01": (off_diag_overlaps > 0.1).float().mean().item(),
             "pct_high_overlap_001": (off_diag_overlaps > 0.01).float().mean().item(),

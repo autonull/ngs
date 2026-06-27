@@ -18,7 +18,7 @@ TRACK_SCRIPTS = {
     'A3': 'experiments/track_a3_dense_residual.py',
     'A4': 'experiments/track_a4_shared_router.py',
     'A5': 'experiments/track_a5_mlp_projections.py',
-    'A6': 'ngs/experiments/track_a6_soft_routing.py',
+    'A6': 'experiments/track_a6_soft_routing.py',
 }
 
 
