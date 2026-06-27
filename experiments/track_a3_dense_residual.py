@@ -61,7 +61,6 @@ def train_eval(model, train_loader, test_loader, device, epochs=5, lr=1e-3):
 
 
 def run_a3_experiment(config_name, layer_configs, gamma, beta, seed=42, epochs=5, device='cuda'):
-    """Run a single A3 config."""
     set_seed(seed)
     
     train_ds, test_ds, d_in, d_out = load_mnist_fast()
@@ -69,7 +68,7 @@ def run_a3_experiment(config_name, layer_configs, gamma, beta, seed=42, epochs=5
     test_loader = DataLoader(test_ds, batch_size=512, shuffle=False)
     
     configs = []
-    for i, lc in enumerate(layer_configs):
+    for lc in layer_configs:
         configs.append(NGSConfig(
             latent_dim=lc.get('latent_dim', 64),
             max_k=lc.get('max_k', 32),
@@ -81,8 +80,6 @@ def run_a3_experiment(config_name, layer_configs, gamma, beta, seed=42, epochs=5
         ))
     
     model = MultiLayerNGS(d_in, d_out, len(configs), configs)
-    
-    print(f"  [{config_name}] gamma={gamma}, beta={beta}")
     
     start = time.time()
     acc = train_eval(model, train_loader, test_loader, device, epochs=epochs)
@@ -108,37 +105,22 @@ def main():
     
     device = "cuda" if args.device == "auto" and torch.cuda.is_available() else args.device
     
-    # Gamma and beta sweep from TODO12
-    gammas = [0.05, 0.1, 0.2]
-    betas = [0.05, 0.1, 0.2]
+    # Reduced sweep for cheaper experiments
+    gammas = [0.1, 0.2]
+    betas = [0.1, 0.2]
     
-    # Layer configs - use progressive top_k as base (from A1 best)
-    base_layers = [
-        {'top_k': 4, 'max_k': 32, 'latent_dim': 64},
-        {'top_k': 8, 'max_k': 32, 'latent_dim': 64},
-        {'top_k': 16, 'max_k': 32, 'latent_dim': 64},
-        {'top_k': 32, 'max_k': 32, 'latent_dim': 64},
-    ]
-    
-    sweep_configs = []
-    for gamma, beta in product(gammas, betas):
-        sweep_configs.append({
-            'name': f'gamma{gamma}_beta{beta}',
-            'layers': base_layers,
-            'gamma': gamma,
-            'beta': beta,
-        })
-    
-    # Also test baseline config (all layers same top_k=8)
+    # Baseline layers - only one config set now
     baseline_layers = [
         {'top_k': 8, 'max_k': 32, 'latent_dim': 64},
         {'top_k': 8, 'max_k': 32, 'latent_dim': 64},
         {'top_k': 8, 'max_k': 32, 'latent_dim': 64},
         {'top_k': 8, 'max_k': 32, 'latent_dim': 64},
     ]
+    
+    sweep_configs = []
     for gamma, beta in product(gammas, betas):
         sweep_configs.append({
-            'name': f'baseline_gamma{gamma}_beta{beta}',
+            'name': f'gamma{gamma}_beta{beta}',
             'layers': baseline_layers,
             'gamma': gamma,
             'beta': beta,
@@ -156,7 +138,7 @@ def main():
                 args.seed, args.epochs, device
             )
             results.append(result)
-            print(f"  Result: {result['test_accuracy']:.4f} ({result['time_seconds']:.1f}s)")
+            print(f"  [{result['config_name']}] Result: {result['test_accuracy']:.4f} ({result['time_seconds']:.1f}s)")
         except Exception as e:
             print(f"  ERROR in {config['name']}: {e}")
             results.append({'config_name': config['name'], 'error': str(e)})

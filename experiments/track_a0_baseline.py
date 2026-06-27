@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """
-Track A4: Cross-Layer Router Sharing
-Hypothesis: Single router shared across layers with per-layer param_stores.
-Target: 4-layer NGS >= 92% on MNIST (5 epochs)
+Track A0: Baseline Confirmation (Run across 3 seeds)
+Hypothesis: depth=4 is consistently >= 95% across seeds
+Target: >= 95.0% mean accuracy on MNIST (5 epochs)
 """
 import sys
 import json
@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, '/home/me/ngs')
 
-from ngs.models.ngs import SharedRouterNGS
+from ngs.models.ngs import MultiLayerNGS
 from ngs.core.interfaces import NGSConfig, RoutingStrategy
 from experiments.fast_data import load_mnist_fast
 
@@ -59,7 +59,7 @@ def train_eval(model, train_loader, test_loader, device, epochs=5, lr=1e-3):
     return best_acc
 
 
-def run_a4_experiment(config_name, num_layers, config_params, seed=42, epochs=5, device='cuda'):
+def run_a0_experiment(seed, epochs=5, device='cuda'):
     set_seed(seed)
     
     train_ds, test_ds, d_in, d_out = load_mnist_fast()
@@ -67,93 +67,83 @@ def run_a4_experiment(config_name, num_layers, config_params, seed=42, epochs=5,
     test_loader = DataLoader(test_ds, batch_size=512, shuffle=False)
     
     config = NGSConfig(
-        latent_dim=config_params.get('latent_dim', 64),
-        max_k=config_params.get('max_k', 32),
-        top_k=config_params.get('top_k', 8),
-        k_init=min(config_params.get('top_k', 8), config_params.get('max_k', 32)),
+        latent_dim=64,
+        max_k=32,
+        top_k=8,
+        k_init=8,
         routing=RoutingStrategy.MONOLITHIC_MAHALANOBIS,
-        gamma_residual=config_params.get('gamma_residual', 0.1),
+        gamma_residual=0.1,
+        beta_residual=0.1,
     )
     
-    model = SharedRouterNGS(d_in, d_out, num_layers, config)
+    model = MultiLayerNGS(d_in, d_out, 4, [config]*4)
     
     start = time.time()
     acc = train_eval(model, train_loader, test_loader, device, epochs=epochs)
     elapsed = time.time() - start
     
     return {
-        'config_name': config_name,
-        'num_layers': num_layers,
-        'config': config_params,
+        'seed': seed,
         'test_accuracy': acc,
         'time_seconds': elapsed,
-        'seed': seed,
     }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Track A4: Shared Router test")
-    parser.add_argument("--seed", type=int, default=42)
+    parser = argparse.ArgumentParser(description="Track A0: Baseline confirmation (3 seeds)")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--output", default="results/track_a/a4_shared_router.json")
+    parser.add_argument("--output", default="results/track_a/a0_baseline.json")
     args = parser.parse_args()
     
     device = "cuda" if args.device == "auto" and torch.cuda.is_available() else args.device
+    seeds = [42, 43, 44]
     
-    # Reduced sweep for cheaper experiments
-    sweep_configs = [
-        {
-            'name': 'shared_router_4L_K32_tk8',
-            'num_layers': 4,
-            'params': {'latent_dim': 64, 'max_k': 32, 'top_k': 8, 'gamma_residual': 0.1},
-        },
-        {
-            'name': 'shared_router_2L_K32_tk8',
-            'num_layers': 2,
-            'params': {'latent_dim': 64, 'max_k': 32, 'top_k': 8, 'gamma_residual': 0.1},
-        },
-    ]
-    
-    print(f"Running Track A4: {len(sweep_configs)} configs, {args.epochs} epochs each")
-    print(f"Device: {device}, Seed: {args.seed}")
+    print(f"Running Track A0: {len(seeds)} seeds, {args.epochs} epochs each")
+    print(f"Device: {device}")
     
     results = []
-    
-    for config in sweep_configs:
+    for seed in seeds:
         try:
-            result = run_a4_experiment(
-                config['name'], config['num_layers'], config['params'],
-                args.seed, args.epochs, device
-            )
+            result = run_a0_experiment(seed, args.epochs, device)
             results.append(result)
-            print(f"  [{result['config_name']}] Result: {result['test_accuracy']:.4f} ({result['time_seconds']:.1f}s)")
+            print(f"  Seed {seed}: {result['test_accuracy']:.4f} ({result['time_seconds']:.1f}s)")
         except Exception as e:
-            print(f"  ERROR in {config['name']}: {e}")
-            results.append({'config_name': config['name'], 'error': str(e)})
+            print(f"  ERROR with seed {seed}: {e}")
+            results.append({'seed': seed, 'error': str(e)})
+    
+    # Compute mean accuracy if all successful
+    accuracies = [r['test_accuracy'] for r in results if 'test_accuracy' in r]
+    if accuracies:
+        mean_acc = sum(accuracies) / len(accuracies)
+        print(f"\n  Mean accuracy: {mean_acc:.4f}")
     
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, 'w') as f:
         json.dump({
-            'track': 'A4',
-            'description': 'Shared Router test',
+            'track': 'A0',
+            'description': 'Baseline confirmation (3 seeds)',
             'epochs': args.epochs,
-            'seed': args.seed,
             'results': results,
         }, f, indent=2)
     
     print(f"\nResults saved to: {output_path}")
     
     print("\n" + "="*60)
-    print("TRACK A4 SUMMARY")
+    print("TRACK A0 SUMMARY")
     print("="*60)
     for r in results:
         if 'test_accuracy' in r:
-            marker = " ***" if r['test_accuracy'] >= 0.92 else ""
-            print(f"  {r['config_name']:40s} : {r['test_accuracy']:.4f}{marker}")
+            marker = " ***" if r['test_accuracy'] >= 0.95 else ""
+            print(f"  Seed {r['seed']:3d} : {r['test_accuracy']:.4f}{marker}")
         else:
-            print(f"  {r['config_name']:40s} : ERROR - {r.get('error', 'unknown')}")
+            print(f"  Seed {r['seed']:3d} : ERROR - {r.get('error', 'unknown')}")
+    
+    if accuracies:
+        mean_acc = sum(accuracies) / len(accuracies)
+        gate = "PASSED" if mean_acc >= 0.95 else "FAILED"
+        print(f"\n  Gate A: {gate} (mean {mean_acc:.4f} vs target 0.9500)")
 
 
 if __name__ == "__main__":
